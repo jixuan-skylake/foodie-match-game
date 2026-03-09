@@ -200,6 +200,51 @@ function easeOutQuart(t) {
   return 1 - Math.pow(1 - t, 4);
 }
 
+// 主题系统
+const GAME_THEMES = {
+  warm: { name: '火锅店', bgGradientTop: '#FFD700', bgGradientBottom: '#FF6B6B', primary: '#FF4500' },
+  fresh: { name: '轻食吧', bgGradientTop: '#98FB98', bgGradientBottom: '#3CB371', primary: '#228B22' },
+  sweet: { name: '甜品屋', bgGradientTop: '#FFB6C1', bgGradientBottom: '#FF69B4', primary: '#C71585' },
+  spicy: { name: '烧烤摊', bgGradientTop: '#FFA07A', bgGradientBottom: '#FF4500', primary: '#8B0000' },
+  rainbow: { name: '彩虹夜市', bgGradientTop: '#E6E6FA', bgGradientBottom: '#9370DB', primary: '#4B0082' }
+};
+
+let currentTheme = 'warm'; // 默认主题
+
+function applyTheme(themeKey) {
+  if (GAME_THEMES[themeKey]) {
+    currentTheme = themeKey;
+    THEMES.bgGradientTop = GAME_THEMES[themeKey].bgGradientTop;
+    THEMES.bgGradientBottom = GAME_THEMES[themeKey].bgGradientBottom;
+    THEMES.primary = GAME_THEMES[themeKey].primary;
+  }
+}
+
+// 模拟排行榜数据
+const mockLeaderboard = [
+  { rank: 1, name: '吃货王者', avatar: '👑', score: 9999 },
+  { rank: 2, name: '烤肉达人', avatar: '🥩', score: 8888 },
+  { rank: 3, name: '奶茶星人', avatar: '🧋', score: 7777 },
+  { rank: 4, name: '火锅狂魔', avatar: '🍲', score: 6666 },
+  { rank: 5, name: '炸鸡杀手', avatar: '🍗', score: 5555 },
+  { rank: '...', name: '我', avatar: '😀', score: 0 } // 当前玩家分数动态更新
+];
+
+// 社交排行榜弹窗状态
+let showLeaderboard = false;
+
+// 道具系统状态
+const items = {
+  undo: { count: 3, name: '撤销', emoji: '↩️', cd: 0 },
+  shuffle: { count: 2, name: '洗牌', emoji: '🔀', cd: 0 },
+  hint: { count: 3, name: '提示', emoji: '💡', cd: 0 }
+};
+
+// 挑战模式 (限时赛) 状态
+let isChallengeMode = false;
+let challengeTimeLeft = 60; // 60秒
+let challengeTimer = null;
+
 // 初始化游戏
 function initGame(level) {
   level = level || 1;
@@ -523,11 +568,19 @@ function drawUI() {
   const levelConfig = LEVELS[levelIndex];
 
   const headerGradient = ctx.createLinearGradient(0, 0, 0, 80);
-  headerGradient.addColorStop(0, 'rgba(255, 107, 53, 0.95)');
-  headerGradient.addColorStop(1, 'rgba(255, 217, 61, 0.9)');
+  headerGradient.addColorStop(0, 'rgba(' + hexToRgb(THEMES.primary || '#FF6B35') + ', 0.95)');
+  headerGradient.addColorStop(1, 'rgba(' + hexToRgb(THEMES.secondary || '#FFD93D') + ', 0.9)');
   ctx.fillStyle = headerGradient;
   roundRect(ctx, 0, 0, windowWidth, 80, 0);
   ctx.fill();
+
+  // 辅助函数 hex 转 rgb
+  function hexToRgb(hex) {
+    var r = parseInt(hex.slice(1, 3), 16),
+        g = parseInt(hex.slice(3, 5), 16),
+        b = parseInt(hex.slice(5, 7), 16);
+    return r + ', ' + g + ', ' + b;
+  }
 
   // 装饰波浪
   ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
@@ -580,9 +633,9 @@ function drawUI() {
 // 绘制背景
 function drawBackground() {
   const gradient = ctx.createLinearGradient(0, 0, 0, windowHeight);
-  gradient.addColorStop(0, '#FFE5B4');
-  gradient.addColorStop(0.5, '#FFDAB9');
-  gradient.addColorStop(1, '#FFE4C4');
+  gradient.addColorStop(0, THEMES.bgGradientTop || '#FFE5B4');
+  gradient.addColorStop(0.5, THEMES.bgGradientBottom || '#FFDAB9');
+  gradient.addColorStop(1, adjustColor(THEMES.bgGradientBottom || '#FFE4C4', -20));
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, windowWidth, windowHeight);
 
