@@ -899,12 +899,123 @@ function drawCollectionToast() {
   }
 }
 
+// 绘制社交排行榜
+function drawLeaderboard() {
+  if (!showLeaderboard) return;
+
+  // 半透明遮罩
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, windowWidth, windowHeight);
+
+  // 排行榜面板
+  const panelWidth = windowWidth * 0.8;
+  const panelHeight = windowHeight * 0.7;
+  const panelX = (windowWidth - panelWidth) / 2;
+  const panelY = (windowHeight - panelHeight) / 2;
+
+  // 背景
+  const gradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+  gradient.addColorStop(0, '#FFFFFF');
+  gradient.addColorStop(1, '#F0F8FF');
+  ctx.fillStyle = gradient;
+  roundRect(ctx, panelX, panelY, panelWidth, panelHeight, 20);
+  ctx.fill();
+
+  // 标题栏
+  const titleGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + 60);
+  titleGradient.addColorStop(0, '#FF6B6B');
+  titleGradient.addColorStop(1, '#FF8C00');
+  ctx.fillStyle = titleGradient;
+  roundRect(ctx, panelX, panelY, panelWidth, 60, 20);
+  // 底部补直角
+  ctx.fillRect(panelX, panelY + 40, panelWidth, 20);
+  
+  ctx.font = 'bold 24px Arial';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏆 好友排行榜', windowWidth / 2, panelY + 30);
+
+  // 关闭按钮
+  ctx.font = '24px Arial';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText('✖', panelX + panelWidth - 30, panelY + 30);
+
+  // 列表内容
+  const itemHeight = 60;
+  let startY = panelY + 70;
+
+  mockLeaderboard.forEach((user, index) => {
+    // 列表项背景
+    if (index % 2 === 0) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillRect(panelX + 10, startY, panelWidth - 20, itemHeight);
+    }
+
+    // 排名
+    ctx.font = 'bold 20px Arial';
+    if (user.rank === 1) ctx.fillStyle = '#FFD700'; // 金
+    else if (user.rank === 2) ctx.fillStyle = '#C0C0C0'; // 银
+    else if (user.rank === 3) ctx.fillStyle = '#CD7F32'; // 铜
+    else ctx.fillStyle = '#666666';
+    
+    ctx.textAlign = 'center';
+    ctx.fillText(user.rank, panelX + 40, startY + itemHeight / 2);
+
+    // 头像
+    ctx.font = '30px Arial';
+    ctx.fillText(user.avatar, panelX + 90, startY + itemHeight / 2);
+
+    // 名字
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#333333';
+    ctx.textAlign = 'left';
+    ctx.fillText(user.name, panelX + 130, startY + itemHeight / 2);
+
+    // 分数
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = '#FF4500';
+    ctx.textAlign = 'right';
+    ctx.fillText(user.score, panelX + panelWidth - 20, startY + itemHeight / 2);
+
+    startY += itemHeight;
+  });
+
+  // 底部自己的分数更新
+  const myData = mockLeaderboard[mockLeaderboard.length - 1];
+  myData.score = Math.max(myData.score, gameState.score); // 动态更新最高分
+}
+
+// 绘制主界面按钮 (例如排行榜入口)
+function drawHomeButtons() {
+  if (gameState.gameStatus !== 'playing') return;
+
+  const btnWidth = 50;
+  const btnHeight = 50;
+  const btnX = 15;
+  const btnY = 90;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  roundRect(ctx, btnX, btnY, btnWidth, btnHeight, 25);
+  ctx.fill();
+
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+  ctx.shadowBlur = 5;
+  ctx.shadowOffsetY = 2;
+  ctx.font = '24px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏆', btnX + btnWidth / 2, btnY + btnHeight / 2);
+  ctx.shadowColor = 'transparent';
+}
+
 // 主渲染循环
 function render() {
   animationFrame++;
 
   drawBackground();
   drawUI();
+  drawHomeButtons();
 
   // 绘制场上的卡片
   gameState.cards.forEach(function(card) {
@@ -922,6 +1033,11 @@ function render() {
 
   if (gameState.gameStatus !== 'playing') {
     drawGameOver();
+  }
+
+  // 最后绘制社交排行榜层
+  if (showLeaderboard) {
+    drawLeaderboard();
   }
 
   requestAnimationFrame(render);
@@ -1077,6 +1193,29 @@ function collectCard(card) {
 
 // 点击处理
 function handleClick(event) {
+  const clientX = event.clientX;
+  const clientY = event.clientY;
+
+  // 处理排行榜点击
+  if (showLeaderboard) {
+    const panelWidth = windowWidth * 0.8;
+    const panelHeight = windowHeight * 0.7;
+    const panelX = (windowWidth - panelWidth) / 2;
+    const panelY = (windowHeight - panelHeight) / 2;
+    
+    // 点击关闭按钮
+    if (
+      clientX >= panelX + panelWidth - 40 &&
+      clientX <= panelX + panelWidth &&
+      clientY >= panelY &&
+      clientY <= panelY + 40
+    ) {
+      showLeaderboard = false;
+      return;
+    }
+    return; // 排行榜显示时屏蔽底层点击
+  }
+
   if (gameState.gameStatus !== 'playing') {
     if (gameState.gameStatus === 'win') {
       initGame(gameState.level + 1);
@@ -1086,8 +1225,20 @@ function handleClick(event) {
     return;
   }
 
-  const clientX = event.clientX;
-  const clientY = event.clientY;
+  // 检测排行榜按钮点击
+  const btnWidth = 50;
+  const btnHeight = 50;
+  const btnX = 15;
+  const btnY = 90;
+  if (
+    clientX >= btnX &&
+    clientX <= btnX + btnWidth &&
+    clientY >= btnY &&
+    clientY <= btnY + btnHeight
+  ) {
+    showLeaderboard = true;
+    return;
+  }
 
   for (let i = gameState.cards.length - 1; i >= 0; i--) {
     const card = gameState.cards[i];
