@@ -828,6 +828,81 @@ function createCelebration() {
 }
 
 // 绘制游戏结束画面
+// 变现集成 (激励视频广告)
+let rewardedVideoAd = null;
+if (typeof wx !== 'undefined' && wx.createRewardedVideoAd) {
+  rewardedVideoAd = wx.createRewardedVideoAd({
+    adUnitId: 'adunit-xxxxxxxxxxxxxxxxx' // 需替换为真实的广告位 ID
+  });
+  
+  rewardedVideoAd.onLoad(() => {
+    console.log('激励视频 广告加载成功');
+  });
+  
+  rewardedVideoAd.onError((err) => {
+    console.log('激励视频 广告加载失败', err);
+  });
+  
+  rewardedVideoAd.onClose((res) => {
+    // 用户点击了【关闭广告】按钮
+    // 小于 2.1.0 的基础库版本，res 是一个 undefined
+    if (res && res.isEnded || res === undefined) {
+      // 正常播放结束，可以下发游戏奖励
+      wx.showToast({ title: '获得奖励！', icon: 'success' });
+      
+      if (pendingAdRewardType === 'revive') {
+         // 复活：清空几个槽位
+         gameState.slots.splice(0, 3);
+         gameState.gameStatus = 'playing';
+         playSound('win');
+      } else if (pendingAdRewardType) {
+         // 增加道具
+         items[pendingAdRewardType].count += 3;
+         playSound('win');
+      }
+    } else {
+      // 播放中途退出，不下发游戏奖励
+      wx.showToast({ title: '需观看完整视频才能获得奖励', icon: 'none' });
+    }
+    pendingAdRewardType = null;
+  });
+}
+
+let pendingAdRewardType = null;
+
+function showAdForReward(type) {
+  pendingAdRewardType = type;
+  if (rewardedVideoAd) {
+    rewardedVideoAd.show().catch(() => {
+      // 失败重试
+      rewardedVideoAd.load()
+        .then(() => rewardedVideoAd.show())
+        .catch(err => {
+          console.log('激励视频 广告显示失败', err);
+          wx.showToast({ title: '暂无广告，免费赠送！', icon: 'none' });
+          
+          // 开发测试阶段，直接给奖励
+          if (type === 'revive') {
+             gameState.slots.splice(0, 3);
+             gameState.gameStatus = 'playing';
+          } else {
+             items[type].count += 3;
+          }
+        });
+    });
+  } else {
+    // 不支持的环境，直接给奖励
+    wx.showToast({ title: '开发环境，免费赠送！', icon: 'none' });
+    if (type === 'revive') {
+       gameState.slots.splice(0, 3);
+       gameState.gameStatus = 'playing';
+    } else {
+       items[type].count += 3;
+    }
+  }
+}
+
+// 修改游戏结束画面，添加复活按钮
 function drawGameOver() {
   if (gameState.gameStatus === 'win') {
     drawCelebrateParticles();
@@ -869,7 +944,23 @@ function drawGameOver() {
   ctx.fillStyle = '#FF6B35';
   ctx.fillText(gameState.score.toString(), windowWidth / 2, boxY + 195);
 
-  const btnY = boxY + boxHeight - 50;
+  const btnY = boxY + boxHeight - 60; // 调高一点，腾出复活按钮的空间
+  
+  if (gameState.gameStatus === 'lose') {
+     // 复活按钮
+     const reviveBtnY = btnY - 50;
+     const reviveGradient = ctx.createLinearGradient(boxX + 30, reviveBtnY - 20, boxX + boxWidth - 30, reviveBtnY);
+     reviveGradient.addColorStop(0, '#4CAF50');
+     reviveGradient.addColorStop(1, '#8BC34A');
+     ctx.fillStyle = reviveGradient;
+     roundRect(ctx, boxX + 30, reviveBtnY - 25, boxWidth - 60, 45, 22);
+     ctx.fill();
+     
+     ctx.font = 'bold 18px Arial';
+     ctx.fillStyle = '#FFFFFF';
+     ctx.fillText('📺 看视频复活 (消去3张)', windowWidth / 2, reviveBtnY);
+  }
+
   const btnGradient = ctx.createLinearGradient(boxX + 30, btnY - 20, boxX + boxWidth - 30, btnY);
   btnGradient.addColorStop(0, '#FF6B35');
   btnGradient.addColorStop(1, '#FFD93D');
@@ -1307,6 +1398,24 @@ function handleClick(event) {
     if (gameState.gameStatus === 'win') {
       initGame(gameState.level + 1);
     } else {
+      // 检查是否点击了看视频复活按钮
+      const boxWidth = windowWidth * 0.85;
+      const boxHeight = 280;
+      const boxX = (windowWidth - boxWidth) / 2;
+      const boxY = (windowHeight - boxHeight) / 2;
+      const btnY = boxY + boxHeight - 60;
+      const reviveBtnY = btnY - 50;
+
+      if (
+        clientX >= boxX + 30 &&
+        clientX <= boxX + boxWidth - 30 &&
+        clientY >= reviveBtnY - 25 &&
+        clientY <= reviveBtnY + 20
+      ) {
+        showAdForReward('revive');
+        return;
+      }
+
       initGame(1);
     }
     return;
@@ -1362,9 +1471,9 @@ function handleClick(event) {
       if (item.count > 0) {
         useItem(key);
       } else {
-        // 如果数量为0，观看广告获取（下文变现迭代中实现）
-        wx.showToast({ title: '没有道具了，去获取吧', icon: 'none' });
-        // showAdForReward(key);
+        // 如果数量为0，观看广告获取
+        wx.showToast({ title: '没有道具了，看视频获取', icon: 'none' });
+        showAdForReward(key);
       }
       return;
     }
