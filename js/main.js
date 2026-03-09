@@ -1,12 +1,109 @@
 import { CollectionSystem } from './collection.js';
 
 /**
- * 吃货大作战 v4.0 - 收集系统版
- * 迭代3：美食图鉴、成就徽章、统计数据
+ * 吃货大作战 v5.0 - 音效及体感版
+ * 迭代4：音效系统
+ * 迭代5：体感交互
  */
 
 // 初始化收集系统
 CollectionSystem.load();
+
+// 音效系统
+const audioManager = {
+  bgm: wx.createInnerAudioContext(),
+  click: wx.createInnerAudioContext(),
+  match: wx.createInnerAudioContext(),
+  win: wx.createInnerAudioContext(),
+  lose: wx.createInnerAudioContext(),
+  shuffle: wx.createInnerAudioContext(), // 摇一摇洗牌音效
+  enabled: true
+};
+
+// 占位音效URL (实际开发中应替换为本地或CDN资源)
+audioManager.bgm.src = 'https://down.chinaz.com/test/download.php?id=38392&s=mp3'; // 轻松背景乐
+audioManager.bgm.loop = true;
+audioManager.click.src = 'https://down.chinaz.com/test/download.php?id=39123&s=mp3'; // 清脆点击声
+audioManager.match.src = 'https://down.chinaz.com/test/download.php?id=39124&s=mp3'; // 消除音效
+audioManager.win.src = 'https://down.chinaz.com/test/download.php?id=39125&s=mp3'; // 胜利音效
+audioManager.lose.src = 'https://down.chinaz.com/test/download.php?id=39126&s=mp3'; // 失败音效
+audioManager.shuffle.src = 'https://down.chinaz.com/test/download.php?id=39127&s=mp3'; // 摇一摇颠锅音效
+
+function playSound(type) {
+  if (!audioManager.enabled) return;
+  
+  try {
+    if (type === 'bgm') {
+      audioManager.bgm.play();
+    } else if (audioManager[type]) {
+      audioManager[type].stop(); // 停止之前的播放
+      audioManager[type].play();
+    }
+  } catch (e) {
+    console.log('播放音效失败:', e);
+  }
+}
+
+// 监听摇一摇事件 (体感颠锅洗牌)
+let lastShakeTime = 0;
+wx.onAccelerometerChange(function(res) {
+  if (gameState.gameStatus !== 'playing') return;
+  
+  const now = Date.now();
+  if (now - lastShakeTime < 2000) return; // 冷却时间2秒
+  
+  // 简单的摇一摇检测逻辑
+  if (Math.abs(res.x) > 1.5 || Math.abs(res.y) > 1.5 || Math.abs(res.z) > 1.5) {
+    lastShakeTime = now;
+    shakeToShuffle();
+  }
+});
+
+// 摇一摇洗牌功能 ("颠锅")
+function shakeToShuffle() {
+  playSound('shuffle');
+  wx.vibrateShort({ type: 'medium' }); // 手机震动反馈
+  
+  // 屏幕中间飘字提示
+  createFloatingText(windowWidth / 2, windowHeight / 2, '🍳 颠锅重排！', '#FF6B35', 36);
+  
+  // 找出所有未收集的卡片
+  const remainingCards = gameState.cards.filter(function(c) { 
+    return !c.collected && !c.isAnimating; 
+  });
+  
+  // 记录它们当前的位置信息
+  const positions = remainingCards.map(function(c) {
+    return { x: c.x, y: c.y, layer: c.layer };
+  });
+  
+  // 打乱位置
+  shuffleArray(positions);
+  
+  // 重新分配位置并添加一点动画效果
+  remainingCards.forEach(function(card, index) {
+    const targetPos = positions[index];
+    
+    // 飞起动画
+    card.isAnimating = true;
+    
+    // 添加一点随机偏移制造混乱感
+    const targetX = targetPos.x + (Math.random() - 0.5) * 20;
+    const targetY = targetPos.y + (Math.random() - 0.5) * 20;
+    
+    // 简单的动画过渡 (实际可以更平滑)
+    setTimeout(function() {
+      card.x = targetX;
+      card.y = targetY;
+      card.layer = targetPos.layer;
+      card.rotation = (Math.random() - 0.5) * 20;
+      card.isAnimating = false;
+    }, 300);
+  });
+  
+  // 重新根据层级排序
+  gameState.cards.sort(function(a, b) { return a.layer - b.layer; });
+}
 
 const systemInfo = wx.getSystemInfoSync();
 const windowWidth = systemInfo.windowWidth;
