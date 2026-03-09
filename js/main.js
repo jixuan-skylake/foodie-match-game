@@ -986,6 +986,57 @@ function drawLeaderboard() {
   myData.score = Math.max(myData.score, gameState.score); // 动态更新最高分
 }
 
+// 绘制道具按钮
+function drawItems() {
+  if (gameState.gameStatus !== 'playing') return;
+
+  const itemWidth = 60;
+  const itemHeight = 60;
+  const gap = 20;
+  const totalWidth = 3 * itemWidth + 2 * gap;
+  const startX = (windowWidth - totalWidth) / 2;
+  const startY = windowHeight - 65; // 在槽位下方
+
+  const itemKeys = Object.keys(items);
+  
+  itemKeys.forEach((key, index) => {
+    const item = items[key];
+    const x = startX + index * (itemWidth + gap);
+    
+    // 按钮背景
+    ctx.fillStyle = item.count > 0 ? 'rgba(255, 255, 255, 0.9)' : 'rgba(200, 200, 200, 0.7)';
+    roundRect(ctx, x, startY, itemWidth, itemHeight, 15);
+    ctx.fill();
+    
+    // 边框
+    ctx.strokeStyle = item.count > 0 ? '#FFD700' : '#A9A9A9';
+    ctx.lineWidth = 2;
+    roundRect(ctx, x, startY, itemWidth, itemHeight, 15);
+    ctx.stroke();
+
+    // Emoji
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#000000';
+    ctx.fillText(item.emoji, x + itemWidth / 2, startY + itemHeight / 2 - 5);
+
+    // 数量标签
+    ctx.fillStyle = item.count > 0 ? '#FF6B6B' : '#666666';
+    roundRect(ctx, x + itemWidth - 25, startY - 10, 30, 20, 10);
+    ctx.fill();
+    
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(item.count > 0 ? item.count : '+', x + itemWidth - 10, startY);
+    
+    // 名称
+    ctx.font = '12px Arial';
+    ctx.fillStyle = item.count > 0 ? '#333333' : '#666666';
+    ctx.fillText(item.name, x + itemWidth / 2, startY + itemHeight - 12);
+  });
+}
+
 // 绘制主界面按钮 (例如排行榜入口)
 function drawHomeButtons() {
   if (gameState.gameStatus !== 'playing') return;
@@ -1016,6 +1067,7 @@ function render() {
   drawBackground();
   drawUI();
   drawHomeButtons();
+  drawItems();
 
   // 绘制场上的卡片
   gameState.cards.forEach(function(card) {
@@ -1240,6 +1292,37 @@ function handleClick(event) {
     return;
   }
 
+  // 检测道具按钮点击
+  const itemWidth = 60;
+  const itemHeight = 60;
+  const gap = 20;
+  const totalWidth = 3 * itemWidth + 2 * gap;
+  const startX = (windowWidth - totalWidth) / 2;
+  const startY = windowHeight - 65;
+  
+  const itemKeys = Object.keys(items);
+  for (let idx = 0; idx < itemKeys.length; idx++) {
+    const key = itemKeys[idx];
+    const item = items[key];
+    const x = startX + idx * (itemWidth + gap);
+    
+    if (
+      clientX >= x &&
+      clientX <= x + itemWidth &&
+      clientY >= startY &&
+      clientY <= startY + itemHeight
+    ) {
+      if (item.count > 0) {
+        useItem(key);
+      } else {
+        // 如果数量为0，观看广告获取（下文变现迭代中实现）
+        wx.showToast({ title: '没有道具了，去获取吧', icon: 'none' });
+        // showAdForReward(key);
+      }
+      return;
+    }
+  }
+
   for (let i = gameState.cards.length - 1; i >= 0; i--) {
     const card = gameState.cards[i];
     if (card.collected || card.isAnimating) continue;
@@ -1286,3 +1369,74 @@ render();
 
 console.log('🍔 吃货大作战 v3.0 - 动效增强版 已启动！');
 console.log('📱 屏幕尺寸:', windowWidth, 'x', windowHeight);
+// 使用道具
+function useItem(type) {
+  if (items[type].count <= 0) return;
+  items[type].count--;
+
+  if (type === 'undo') {
+    // 撤销上一步操作 (移出最后一个进入槽位的卡片放回原处)
+    if (gameState.slots.length > 0) {
+      const lastSlotCard = gameState.slots.pop();
+      // 这里可以做个飞出动画，简单起见直接把它状态重置
+      const originalCard = gameState.cards.find(c => c.type === lastSlotCard.type && c.collected === true && c.isAnimating === false && lastSlotCard.food === c.food);
+      if(originalCard) {
+          originalCard.collected = false;
+      } else {
+        // 如果找不到对应的原卡，说明可能是在消除边缘或者被其他逻辑改了，安全起见把最后一张对应的收集属性设为false
+         for(let c of gameState.cards) {
+             if(c.type === lastSlotCard.type && c.collected === true) {
+                 c.collected = false;
+                 break;
+             }
+         }
+      }
+      playSound('shuffle');
+      createFloatingText(windowWidth / 2, windowHeight / 2, '↩️ 撤销！', '#FFD700', 36);
+    } else {
+       wx.showToast({ title: '没有可以撤销的卡片', icon: 'none' });
+       items[type].count++;
+    }
+  } else if (type === 'shuffle') {
+    // 洗牌道具，等同于摇一摇
+    shakeToShuffle();
+  } else if (type === 'hint') {
+    // 提示 (高亮可以消除或成对的卡片，这里简单高亮同类型的卡片)
+    const availableTypes = {};
+    const uncollected = gameState.cards.filter(c => !c.collected && !c.isAnimating);
+    
+    // 如果槽位里有，优先提示槽位里的类型
+    if(gameState.slots.length > 0) {
+        const slotType = gameState.slots[0].type;
+        const matchingCards = uncollected.filter(c => c.type === slotType);
+        if(matchingCards.length > 0) {
+            matchingCards.forEach(c => {
+                 c.opacity = 0.5; // 先变半透明作为简单的高亮动画
+                 setTimeout(() => { c.opacity = 1; }, 1000);
+            });
+            createFloatingText(windowWidth / 2, windowHeight / 2, '💡 提示！', '#FFD700', 36);
+            return;
+        }
+    }
+    
+    // 随机提示三个相同的
+    uncollected.forEach(c => {
+        if(!availableTypes[c.type]) availableTypes[c.type] = [];
+        availableTypes[c.type].push(c);
+    });
+    
+    for(let t in availableTypes) {
+        if(availableTypes[t].length >= 3) {
+            availableTypes[t].slice(0, 3).forEach(c => {
+                 c.opacity = 0.5;
+                 setTimeout(() => { c.opacity = 1; }, 1000);
+            });
+            createFloatingText(windowWidth / 2, windowHeight / 2, '💡 提示！', '#FFD700', 36);
+            return;
+        }
+    }
+    
+    wx.showToast({ title: '目前没有好提示哦', icon: 'none' });
+    items[type].count++;
+  }
+}
