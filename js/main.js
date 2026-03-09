@@ -1,7 +1,12 @@
+import { CollectionSystem } from './collection.js';
+
 /**
- * 吃货大作战 v3.0 - 动效增强版
- * 迭代2：点击反馈、卡片飞入、消除爆炸、胜利庆祝
+ * 吃货大作战 v4.0 - 收集系统版
+ * 迭代3：美食图鉴、成就徽章、统计数据
  */
+
+// 初始化收集系统
+CollectionSystem.load();
 
 const systemInfo = wx.getSystemInfoSync();
 const windowWidth = systemInfo.windowWidth;
@@ -113,7 +118,9 @@ function initGame(level) {
     combo: 0,
     totalEliminated: gameState.totalEliminated || 0,
     particles: [],
+    // 记录收集提示数组
     floatingTexts: [],
+    collectionToasts: [],
     clickEffects: [],
     flyCards: [],
     celebrateParticles: [],
@@ -709,6 +716,39 @@ function drawGameOver() {
   }
 }
 
+// 绘制收集提示
+function drawCollectionToast() {
+  if (gameState.collectionToasts && gameState.collectionToasts.length > 0) {
+    const toast = gameState.collectionToasts[0];
+    toast.y -= 1;
+    toast.life -= 0.01;
+
+    if (toast.life <= 0) {
+      gameState.collectionToasts.shift();
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = toast.life;
+    ctx.translate(windowWidth / 2, toast.y);
+    
+    // 背景框
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    roundRect(ctx, -120, -25, 240, 50, 10);
+    ctx.fill();
+
+    // 文字
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = '#FFD700';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🌟 解锁新美食: ' + toast.name + ' ' + toast.emoji, 0, 0);
+    
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+}
+
 // 主渲染循环
 function render() {
   animationFrame++;
@@ -728,6 +768,7 @@ function render() {
   drawClickEffects();
   drawParticles();
   drawFloatingTexts();
+  drawCollectionToast(); // 新增绘制收集提示
 
   if (gameState.gameStatus !== 'playing') {
     drawGameOver();
@@ -763,11 +804,13 @@ function checkMatch() {
         createEliminateParticles(slotX + CARD_SIZE / 2, slotAreaY + CARD_SIZE / 2, card.food.color);
       });
 
+      // 移除卡片
       indicesToRemove.forEach(function(index) {
         gameState.slots.splice(index, 1);
       });
 
       gameState.totalEliminated += MATCH_COUNT;
+      CollectionSystem.updateStats({ eliminated: MATCH_COUNT });
     }
   });
 
@@ -782,6 +825,7 @@ function checkGameState() {
     gameState.gameStatus = 'win';
     gameState.score += 500;
     createCelebration();
+    CollectionSystem.updateStats({ score: gameState.score, won: 1, played: 1 });
     return;
   }
 
@@ -800,6 +844,7 @@ function checkGameState() {
 
     if (!canMatch) {
       gameState.gameStatus = 'lose';
+      CollectionSystem.updateStats({ played: 1 });
     }
   }
 }
@@ -843,6 +888,17 @@ function collectCard(card) {
     rotation: card.rotation
   });
 
+  // 记录收集进度
+  if (CollectionSystem.unlockFood(card.food.name)) {
+    gameState.collectionToasts = gameState.collectionToasts || [];
+    gameState.collectionToasts.push({
+      name: card.food.name,
+      emoji: card.food.emoji,
+      y: windowHeight / 2,
+      life: 2.5
+    });
+  }
+
   // 延迟检查消除
   setTimeout(function() {
     const matched = checkMatch();
@@ -851,6 +907,7 @@ function collectCard(card) {
       gameState.combo++;
       const bonus = 100 * gameState.combo;
       gameState.score += bonus;
+      CollectionSystem.updateStats({ combo: gameState.combo });
 
       const slotAreaY = windowHeight - CARD_SIZE - 80;
       createFloatingText(
