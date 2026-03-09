@@ -1,161 +1,72 @@
-import { CollectionSystem } from './collection.js';
-
 /**
- * 吃货大作战 v5.0 - 音效及体感版
- * 迭代4：音效系统
- * 迭代5：体感交互
+ * 《吃货大作战 - 沸腾火锅局》 v6.0 (The Soul Update)
+ * 极致手感、生命力动画、羁绊消除系统
  */
-
-// 初始化收集系统
+import { CollectionSystem } from './collection.js';
 CollectionSystem.load();
-
-// 音效系统
-const audioManager = {
-  bgm: wx.createInnerAudioContext(),
-  click: wx.createInnerAudioContext(),
-  match: wx.createInnerAudioContext(),
-  win: wx.createInnerAudioContext(),
-  lose: wx.createInnerAudioContext(),
-  shuffle: wx.createInnerAudioContext(), // 摇一摇洗牌音效
-  enabled: true
-};
-
-// 占位音效URL (实际开发中应替换为本地或CDN资源)
-audioManager.bgm.src = 'https://down.chinaz.com/test/download.php?id=38392&s=mp3'; // 轻松背景乐
-audioManager.bgm.loop = true;
-audioManager.click.src = 'https://down.chinaz.com/test/download.php?id=39123&s=mp3'; // 清脆点击声
-audioManager.match.src = 'https://down.chinaz.com/test/download.php?id=39124&s=mp3'; // 消除音效
-audioManager.win.src = 'https://down.chinaz.com/test/download.php?id=39125&s=mp3'; // 胜利音效
-audioManager.lose.src = 'https://down.chinaz.com/test/download.php?id=39126&s=mp3'; // 失败音效
-audioManager.shuffle.src = 'https://down.chinaz.com/test/download.php?id=39127&s=mp3'; // 摇一摇颠锅音效
-
-function playSound(type) {
-  if (!audioManager.enabled) return;
-  
-  try {
-    if (type === 'bgm') {
-      audioManager.bgm.play();
-    } else if (audioManager[type]) {
-      audioManager[type].stop(); // 停止之前的播放
-      audioManager[type].play();
-    }
-  } catch (e) {
-    console.log('播放音效失败:', e);
-  }
-}
-
-// 监听摇一摇事件 (体感颠锅洗牌)
-let lastShakeTime = 0;
-wx.onAccelerometerChange(function(res) {
-  if (gameState.gameStatus !== 'playing') return;
-  
-  const now = Date.now();
-  if (now - lastShakeTime < 2000) return; // 冷却时间2秒
-  
-  // 简单的摇一摇检测逻辑
-  if (Math.abs(res.x) > 1.5 || Math.abs(res.y) > 1.5 || Math.abs(res.z) > 1.5) {
-    lastShakeTime = now;
-    shakeToShuffle();
-  }
-});
-
-// 摇一摇洗牌功能 ("颠锅")
-function shakeToShuffle() {
-  playSound('shuffle');
-  wx.vibrateShort({ type: 'medium' }); // 手机震动反馈
-  
-  // 屏幕中间飘字提示
-  createFloatingText(windowWidth / 2, windowHeight / 2, '🍳 颠锅重排！', '#FF6B35', 36);
-  
-  // 找出所有未收集的卡片
-  const remainingCards = gameState.cards.filter(function(c) { 
-    return !c.collected && !c.isAnimating; 
-  });
-  
-  // 记录它们当前的位置信息
-  const positions = remainingCards.map(function(c) {
-    return { x: c.x, y: c.y, layer: c.layer };
-  });
-  
-  // 打乱位置
-  shuffleArray(positions);
-  
-  // 重新分配位置并添加一点动画效果
-  remainingCards.forEach(function(card, index) {
-    const targetPos = positions[index];
-    
-    // 飞起动画
-    card.isAnimating = true;
-    
-    // 添加一点随机偏移制造混乱感
-    const targetX = targetPos.x + (Math.random() - 0.5) * 20;
-    const targetY = targetPos.y + (Math.random() - 0.5) * 20;
-    
-    // 简单的动画过渡 (实际可以更平滑)
-    setTimeout(function() {
-      card.x = targetX;
-      card.y = targetY;
-      card.layer = targetPos.layer;
-      card.rotation = (Math.random() - 0.5) * 20;
-      card.isAnimating = false;
-    }, 300);
-  });
-  
-  // 重新根据层级排序
-  gameState.cards.sort(function(a, b) { return a.layer - b.layer; });
-}
 
 const systemInfo = wx.getSystemInfoSync();
 const windowWidth = systemInfo.windowWidth;
 const windowHeight = systemInfo.windowHeight;
 const pixelRatio = systemInfo.pixelRatio;
+// 安全区适配
+const safeArea = systemInfo.safeArea || { top: 40, left: 0, right: windowWidth, bottom: windowHeight, width: windowWidth, height: windowHeight };
 
 const canvas = wx.createCanvas();
 const ctx = canvas.getContext('2d');
 
-// 游戏常量
+// -- 物理与震动系统 --
+let screenShake = 0;
+let animationFrame = 0;
+let lastRenderTime = Date.now();
+let dt = 16; // 增量时间
+
+// 游戏常量 (完美自适应屏宽)
 const SLOT_COUNT = 7;
 const MATCH_COUNT = 3;
 const CARD_GAP = 6;
 const CARD_SIZE = Math.floor((windowWidth - 40 - CARD_GAP * (SLOT_COUNT - 1)) / SLOT_COUNT);
 
-
-// 🎨 配色方案
+// 🎨 全新配色方案 (磨砂、晶莹剔透)
 const THEMES = {
-  primary: '#FF6B35',
-  secondary: '#FFD93D',
-  accent: '#FF69B4',
-  success: '#4CAF50',
-  danger: '#FF4444',
-  bgGradientTop: '#FFE5B4',
-  bgGradientBottom: '#FFDAB9',
-  cardColors: [
-    '#FF6B6B', '#FFB347', '#DDA0DD', '#FFD700',
-    '#FF8C00', '#FF69B4', '#FFB6C1', '#CD853F', '#87CEEB'
-  ]
+  primary: '#FF4500', // 热烈橙红
+  secondary: '#FF8C00', // 暗橙
+  bgTop: '#FFF5EE',   // 海贝色
+  bgBottom: '#FFEFD5',// 木瓜霜
+  glassColor: 'rgba(255, 255, 255, 0.45)', // 毛玻璃
+  glassBorder: 'rgba(255, 255, 255, 0.8)'
 };
 
-// 美食类型
+// 食材定义：增加"羁绊属性" tag
 const FOOD_TYPES = [
-  { name: '火锅', color: THEMES.cardColors[0], emoji: '🍲', desc: '麻辣鲜香' },
-  { name: '烤肉', color: THEMES.cardColors[1], emoji: '🥩', desc: '滋滋冒油' },
-  { name: '奶茶', color: THEMES.cardColors[2], emoji: '🧋', desc: '珍珠加料' },
-  { name: '炸鸡', color: THEMES.cardColors[3], emoji: '🍗', desc: '外酥里嫩' },
-  { name: '披萨', color: THEMES.cardColors[4], emoji: '🍕', desc: '芝士拉丝' },
-  { name: '寿司', color: THEMES.cardColors[5], emoji: '🍣', desc: '精致美味' },
-  { name: '蛋糕', color: THEMES.cardColors[6], emoji: '🍰', desc: '甜蜜诱惑' },
-  { name: '汉堡', color: THEMES.cardColors[7], emoji: '🍔', desc: '经典美味' },
-  { name: '冰淇淋', color: THEMES.cardColors[8], emoji: '🍦', desc: '清凉解暑' }
+  { name: '肥牛', color: '#FF6B6B', emoji: '🥩', tag: 'meat' },
+  { name: '毛肚', color: '#4A4A4A', emoji: '🧆', tag: 'meat' }, // 黑灰色系表示毛肚
+  { name: '五花肉', color: '#FFB6C1', emoji: '🥓', tag: 'meat' },
+  { name: '娃娃菜', color: '#90EE90', emoji: '🥬', tag: 'veg' },
+  { name: '金针菇', color: '#FDF5E6', emoji: '🍄', tag: 'veg' },
+  { name: '海带', color: '#2E8B57', emoji: '🌿', tag: 'veg' },
+  { name: '鱼丸', color: '#FFF8DC', emoji: '🍡', tag: 'ball' },
+  { name: '虾滑', color: '#FFA07A', emoji: '🦐', tag: 'meat' },
+  { name: '撒尿牛丸', color: '#8B4513', emoji: '🧆', tag: 'ball' }
 ];
 
-// 关卡配置
-const LEVELS = [
-  { foodTypes: 4, cardsPerType: 3, layers: 2, name: '新手村', bgTheme: 'warm' },
-  { foodTypes: 5, cardsPerType: 3, layers: 2, name: '美食街', bgTheme: 'fresh' },
-  { foodTypes: 6, cardsPerType: 3, layers: 3, name: '吃货天堂', bgTheme: 'sweet' },
-  { foodTypes: 7, cardsPerType: 3, layers: 3, name: '饕餮盛宴', bgTheme: 'spicy' },
-  { foodTypes: 8, cardsPerType: 3, layers: 3, name: '终极挑战', bgTheme: 'rainbow' }
-];
+// 动态关卡生成器
+function generateLevel(levelNum) {
+  const baseTypes = 4 + Math.floor(levelNum / 2);
+  const types = Math.min(baseTypes, FOOD_TYPES.length);
+  const layers = Math.min(2 + Math.floor(levelNum / 3), 5); // 最大5层
+  
+  // 每种卡牌需要是 MATCH_COUNT 的倍数
+  // 确保牌组有规律可解
+  const pairsPerType = 3; // 3对=9张牌每种
+  
+  return {
+    foodTypes: types,
+    cardsPerType: pairsPerType * MATCH_COUNT, // 9
+    layers: layers,
+    name: levelNum === 1 ? '九宫格开局' : (levelNum >= 5 ? '沸腾海底捞' : '麻辣烫')
+  };
+}
 
 // 游戏状态
 let gameState = {
@@ -163,21 +74,27 @@ let gameState = {
   slots: [],
   score: 0,
   level: 1,
-  gameStatus: 'playing',
+  gameStatus: 'playing', // playing | win | lose
   combo: 0,
-  totalEliminated: 0,
+  
+  // 特效层
   particles: [],
+  bubbles: [], // 沸腾气泡
   floatingTexts: [],
-  clickEffects: [],     // 点击涟漪效果
-  flyCards: [],        // 飞入槽位的卡片
-  celebrateParticles: [], // 胜利庆祝粒子
+  flyCards: [],
+  celebrateParticles: [],
+  
   lastClickTime: 0
 };
 
-// 动画变量
-let animationFrame = 0;
+// 缓动算法 (果冻效果核心)
+function easeOutElastic(t) {
+  const c4 = (2 * Math.PI) / 3;
+  return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+}
+function easeOutQuad(t) { return t * (2 - t); }
 
-// 洗牌算法
+// 洗牌算法 (Fisher-Yates)
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -185,108 +102,74 @@ function shuffleArray(array) {
   }
 }
 
-// 缓动函数 - 让动画更流畅
-function easeOutElastic(t) {
-  const c4 = (2 * Math.PI) / 3;
-  return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
-}
-
-function easeOutBack(t) {
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-}
-
-function easeOutQuart(t) {
-  return 1 - Math.pow(1 - t, 4);
-}
-
-// 主题系统
-const GAME_THEMES = {
-  warm: { name: '火锅店', bgGradientTop: '#FFD700', bgGradientBottom: '#FF6B6B', primary: '#FF4500' },
-  fresh: { name: '轻食吧', bgGradientTop: '#98FB98', bgGradientBottom: '#3CB371', primary: '#228B22' },
-  sweet: { name: '甜品屋', bgGradientTop: '#FFB6C1', bgGradientBottom: '#FF69B4', primary: '#C71585' },
-  spicy: { name: '烧烤摊', bgGradientTop: '#FFA07A', bgGradientBottom: '#FF4500', primary: '#8B0000' },
-  rainbow: { name: '彩虹夜市', bgGradientTop: '#E6E6FA', bgGradientBottom: '#9370DB', primary: '#4B0082' }
-};
-
-let currentTheme = 'warm'; // 默认主题
-
-function applyTheme(themeKey) {
-  if (GAME_THEMES[themeKey]) {
-    currentTheme = themeKey;
-    THEMES.bgGradientTop = GAME_THEMES[themeKey].bgGradientTop;
-    THEMES.bgGradientBottom = GAME_THEMES[themeKey].bgGradientBottom;
-    THEMES.primary = GAME_THEMES[themeKey].primary;
+// 震动触发 (微信Taptic Engine + 画面抖动)
+function triggerVibration(type) {
+  if (type === 'heavy') {
+    wx.vibrateLong();
+    screenShake = 15; // 震动强度15px
+  } else if (type === 'medium') {
+    wx.vibrateShort({ type: 'medium' });
+    screenShake = 8;
+  } else {
+    wx.vibrateShort({ type: 'light' });
+    screenShake = 3;
   }
 }
 
-// 模拟排行榜数据
-const mockLeaderboard = [
-  { rank: 1, name: '吃货王者', avatar: '👑', score: 9999 },
-  { rank: 2, name: '烤肉达人', avatar: '🥩', score: 8888 },
-  { rank: 3, name: '奶茶星人', avatar: '🧋', score: 7777 },
-  { rank: 4, name: '火锅狂魔', avatar: '🍲', score: 6666 },
-  { rank: 5, name: '炸鸡杀手', avatar: '🍗', score: 5555 },
-  { rank: '...', name: '我', avatar: '😀', score: 0 } // 当前玩家分数动态更新
-];
+// 绘制高级圆角矩形(支持不同角度圆角)
+function roundRectCustom(ctx, x, y, width, height, radii) {
+  ctx.beginPath();
+  ctx.moveTo(x + radii[0], y);
+  ctx.lineTo(x + width - radii[1], y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radii[1]);
+  ctx.lineTo(x + width, y + height - radii[2]);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radii[2], y + height);
+  ctx.lineTo(x + radii[3], y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radii[3]);
+  ctx.lineTo(x, y + radii[0]);
+  ctx.quadraticCurveTo(x, y, x + radii[0], y);
+  ctx.closePath();
+}
 
-// 社交排行榜弹窗状态
-let showLeaderboard = false;
+function roundRect(ctx, x, y, width, height, radius) {
+  roundRectCustom(ctx, x, y, width, height, [radius, radius, radius, radius]);
+}
 
-// 道具系统状态
-const items = {
-  undo: { count: 3, name: '撤销', emoji: '↩️', cd: 0 },
-  shuffle: { count: 2, name: '洗牌', emoji: '🔀', cd: 0 },
-  hint: { count: 3, name: '提示', emoji: '💡', cd: 0 }
-};
-
-// 挑战模式 (限时赛) 状态
-let isChallengeMode = false;
-let challengeTimeLeft = 60; // 60秒
-let challengeTimer = null;
-
-// 初始化游戏
+// =================== 核心初始化 ===================
 function initGame(level) {
   level = level || 1;
-  const levelConfig = LEVELS[Math.min(level - 1, LEVELS.length - 1)];
+  const config = generateLevel(level);
   const prevScore = gameState.score;
 
   gameState = {
-    cards: [],
-    slots: [],
+    cards: [], slots: [],
     score: level > 1 ? prevScore : 0,
     level: level,
     gameStatus: 'playing',
     combo: 0,
-    totalEliminated: gameState.totalEliminated || 0,
-    particles: [],
-    // 记录收集提示数组
-    floatingTexts: [],
-    collectionToasts: [],
-    clickEffects: [],
-    flyCards: [],
-    celebrateParticles: [],
+    particles: [], bubbles: [], floatingTexts: [], flyCards: [], celebrateParticles: [],
     lastClickTime: 0
   };
 
-  const usedFoodTypes = FOOD_TYPES.slice(0, levelConfig.foodTypes);
+  const usedFoodTypes = FOOD_TYPES.slice(0, config.foodTypes);
   const cardPool = [];
 
-  usedFoodTypes.forEach(function(food, foodIndex) {
-    for (let i = 0; i < levelConfig.cardsPerType; i++) {
+  usedFoodTypes.forEach((food, foodIndex) => {
+    for (let i = 0; i < config.cardsPerType; i++) {
       cardPool.push({
         type: foodIndex,
         food: food,
-        x: 0,
-        y: 0,
-        layer: 0,
+        layer: 0, x: 0, y: 0,
         collected: false,
-        id: foodIndex + '-' + i,
-        scale: 1,
-        rotation: 0,
-        isAnimating: false,
-        opacity: 1
+        id: `${foodIndex}-${i}`,
+        scale: 1, rotation: 0,
+        
+        // 呼吸动画的基础偏置
+        breathOffset: Math.random() * Math.PI * 2,
+        
+        // 果冻形变倍率 (squashX, squashY)
+        squashX: 1, squashY: 1,
+        isJelly: false, jellyTime: 0
       });
     }
   });
@@ -294,402 +177,307 @@ function initGame(level) {
   shuffleArray(cardPool);
 
   const totalCards = cardPool.length;
-  const layers = levelConfig.layers;
+  const layers = config.layers;
   const cardsPerLayer = Math.ceil(totalCards / layers);
   const cols = 5;
 
-  const startX = (windowWidth - (cols * (CARD_SIZE + CARD_GAP) - CARD_GAP)) / 2;
-  const startY = (windowHeight - CARD_SIZE * layers - 250) / 2 + 50; // 居中显示
+  const areaWidth = cols * (CARD_SIZE + CARD_GAP) - CARD_GAP;
+  const startX = (windowWidth - areaWidth) / 2;
+  // 计算可用的高度空间：顶部避开刘海(safeArea.top + 80UI)，底部避开收集槽
+  const availTop = safeArea.top + 100;
+  const availBottom = windowHeight - 160 - CARD_SIZE;
+  const startY = availTop + (availBottom - availTop - (cardsPerLayer/cols * (CARD_SIZE+CARD_GAP))) / 2 - 40;
 
-  cardPool.forEach(function(card, index) {
+  cardPool.forEach((card, index) => {
     const layer = Math.floor(index / cardsPerLayer);
     const posInLayer = index % cardsPerLayer;
     const row = Math.floor(posInLayer / cols);
     const col = posInLayer % cols;
 
-    const offsetX = (Math.random() - 0.5) * 30;
-    const offsetY = (Math.random() - 0.5) * 30;
-    const rotation = (Math.random() - 0.5) * 10;
-
-    card.x = startX + col * (CARD_SIZE + CARD_GAP) + offsetX;
-    card.y = startY + row * (CARD_SIZE + CARD_GAP) + layer * 40 + offsetY;
+    // 更散乱的物理分布错位
+    const offsetX = (Math.random() - 0.5) * (CARD_SIZE * 0.4);
+    const offsetY = (Math.random() - 0.5) * (CARD_SIZE * 0.4);
+    
+    // 金字塔堆叠逻辑：上层向内收缩
+    card.x = startX + col * (CARD_SIZE + CARD_GAP) + offsetX + layer * 15;
+    card.y = startY + row * (CARD_SIZE + CARD_GAP) + offsetY + layer * 20;
     card.layer = layer;
-    card.rotation = rotation;
+    card.rotation = (Math.random() - 0.5) * 12;
+    card.baseY = card.y; // 用于呼吸悬浮
   });
 
-  gameState.cards = cardPool.sort(function(a, b) { return a.layer - b.layer; });
+  // 按层排序绘制
+  gameState.cards = cardPool.sort((a, b) => a.layer - b.layer);
+  
+  // 生成初始气泡
+  for(let i=0; i<20; i++) { createBubble(); }
 }
 
-// 绘制圆角矩形
-function roundRect(ctx, x, y, width, height, radius) {
+// =================== 视觉渲染系统 ===================
+function drawBackground() {
+  const gradient = ctx.createLinearGradient(0, 0, 0, windowHeight);
+  gradient.addColorStop(0, THEMES.bgTop);
+  gradient.addColorStop(0.5, '#FFE4C4');
+  gradient.addColorStop(1, THEMES.bgBottom);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, windowWidth, windowHeight);
+
+  // 绘制上升气泡 (火锅沸腾感)
+  gameState.bubbles = gameState.bubbles.filter(b => {
+    b.y -= b.speed;
+    b.x += Math.sin(animationFrame * 0.05 + b.offset) * 0.5;
+    if (b.y < -50) return false;
+    
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 165, 0, ${b.alpha})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255, 69, 0, ${b.alpha * 1.5})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    return true;
+  });
+  
+  if (Math.random() < 0.1) createBubble();
+}
+
+function createBubble() {
+  gameState.bubbles.push({
+    x: Math.random() * windowWidth,
+    y: windowHeight + 20,
+    size: Math.random() * 6 + 2,
+    speed: Math.random() * 2 + 1,
+    alpha: Math.random() * 0.3 + 0.1,
+    offset: Math.random() * 10
+  });
+}
+
+function drawUI() {
+  ctx.save();
+  // 顶部沉浸式标题栏 (避让刘海)
+  ctx.shadowColor = 'rgba(255, 69, 0, 0.4)';
+  ctx.shadowBlur = 15;
+  ctx.shadowOffsetY = 5;
+  
+  const headerGradient = ctx.createLinearGradient(0, 0, 0, safeArea.top + 70);
+  headerGradient.addColorStop(0, '#FF4500'); // 极度热烈
+  headerGradient.addColorStop(1, '#FF8C00');
+  
+  ctx.fillStyle = headerGradient;
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + width - radius, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-  ctx.lineTo(x + width, y + height - radius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  ctx.lineTo(x + radius, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(windowWidth, 0);
+  ctx.lineTo(windowWidth, safeArea.top + 60);
+  // 贝塞尔曲线底部
+  ctx.quadraticCurveTo(windowWidth / 2, safeArea.top + 80, 0, safeArea.top + 60);
   ctx.closePath();
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  // 文字与UI信息
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 24px Arial';
+  ctx.fillText('🍲 沸腾火锅局', windowWidth / 2, safeArea.top + 20);
+
+  ctx.font = '14px Arial';
+  ctx.fillText(`第 ${gameState.level} 桌 · 麻辣清汤`, windowWidth / 2, safeArea.top + 45);
+
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 18px Arial';
+  ctx.fillText(`💰 ${gameState.score}`, 20, safeArea.top + 35);
+
+  const remainingCards = gameState.cards.filter(c => !c.collected).length;
+  ctx.textAlign = 'right';
+  ctx.fillText(`余: ${remainingCards}`, windowWidth - 20, safeArea.top + 35);
+  ctx.restore();
 }
 
-// 绘制精美卡片
+// 核心卡片绘制：引入果冻形变和质感
 function drawCard(card, isSlot) {
-  isSlot = isSlot || false;
   const x = card.x;
-  const y = card.y;
+  
+  // 悬浮呼吸物理计算 (仅场上的牌呼吸)
+  let y = card.y;
+  if (!isSlot && !card.collected) {
+    const float = Math.sin(animationFrame * 0.05 + card.breathOffset) * 3;
+    y = card.baseY + float;
+  }
+  
   const food = card.food;
   const rotation = card.rotation || 0;
-  const scale = card.scale || 1;
-  const opacity = card.opacity !== undefined ? card.opacity : 1;
+  let scale = card.scale || 1;
+  
+  // 果冻动画逻辑 (Squash and Stretch)
+  let sx = 1, sy = 1;
+  if (card.isJelly) {
+    card.jellyTime += dt * 0.001;
+    if (card.jellyTime < 0.4) {
+      // 弹性衰减振荡曲线
+      const progress = card.jellyTime / 0.4;
+      const t = progress;
+      const decay = Math.exp(-t * 8);
+      sx = 1 + Math.sin(t * 20) * 0.4 * decay;
+      sy = 1 - Math.sin(t * 20) * 0.4 * decay;
+    } else {
+      card.isJelly = false; // 结束形变
+    }
+  }
 
   ctx.save();
 
-  // 应用透明度
-  ctx.globalAlpha = opacity;
-
-  // 应用缩放
   const centerX = x + CARD_SIZE / 2;
   const centerY = y + CARD_SIZE / 2;
   ctx.translate(centerX, centerY);
-  ctx.scale(scale, scale);
+  
+  // 应用形变与缩放
+  ctx.scale(scale * sx, scale * sy);
 
-  // 应用旋转
   if (rotation !== 0 && !isSlot) {
     ctx.rotate(rotation * Math.PI / 180);
   }
   ctx.translate(-centerX, -centerY);
 
-  // 多层阴影
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-  ctx.shadowBlur = 15;
-  ctx.shadowOffsetX = 4;
-  ctx.shadowOffsetY = 6;
-
-  // 卡片主体渐变
-  const gradient = ctx.createLinearGradient(x, y, x, y + CARD_SIZE);
-  if (isSlot) {
-    gradient.addColorStop(0, '#FFFFFF');
-    gradient.addColorStop(1, '#F0F0F0');
-  } else {
-    gradient.addColorStop(0, food.color);
-    gradient.addColorStop(1, adjustColor(food.color, -20));
+  // 卡牌本底与阴影
+  if (!isSlot) {
+    // 带有深度的 3D 悬浮阴影
+    ctx.shadowColor = 'rgba(0,0,0,0.25)';
+    ctx.shadowBlur = 12 + card.layer * 3;
+    ctx.shadowOffsetY = 8 + card.layer * 2;
   }
-  ctx.fillStyle = gradient;
+  
+  const grad = ctx.createLinearGradient(x, y, x, y + CARD_SIZE);
+  if (isSlot) {
+    grad.addColorStop(0, '#FFFFFF');
+    grad.addColorStop(1, '#F0F0F0');
+  } else {
+    grad.addColorStop(0, food.color);
+    // 卡牌底端加深
+    const darkColor = adjustColor(food.color, -30);
+    grad.addColorStop(1, darkColor);
+  }
+  
+  ctx.fillStyle = grad;
   roundRect(ctx, x, y, CARD_SIZE, CARD_SIZE, 12);
   ctx.fill();
-
-  // 清除阴影
   ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
 
-  // 高光
-  const highlightGradient = ctx.createLinearGradient(x, y, x, y + CARD_SIZE / 2);
-  highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
-  highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = highlightGradient;
-  roundRect(ctx, x, y, CARD_SIZE, CARD_SIZE / 2, 12);
+  // 顶部玻璃反光高光 (立体质感)
+  const gloss = ctx.createLinearGradient(x, y, x, y + CARD_SIZE / 2);
+  gloss.addColorStop(0, 'rgba(255,255,255,0.6)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gloss;
+  roundRectCustom(ctx, x, y, CARD_SIZE, CARD_SIZE/2, [12,12,0,0]);
   ctx.fill();
 
-  // 边框
-  ctx.strokeStyle = isSlot ? '#E0E0E0' : 'rgba(255, 255, 255, 0.8)';
-  ctx.lineWidth = 3;
+  // 边框描边
+  ctx.strokeStyle = isSlot ? '#E0E0E0' : 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = isSlot ? 2 : 3;
   roundRect(ctx, x, y, CARD_SIZE, CARD_SIZE, 12);
   ctx.stroke();
 
-  // 内边框
-  ctx.strokeStyle = isSlot ? '#F5F5F5' : 'rgba(255, 255, 255, 0.3)';
-  ctx.lineWidth = 1;
-  roundRect(ctx, x + 2, y + 2, CARD_SIZE - 4, CARD_SIZE - 4, 10);
-  ctx.stroke();
-
-  // Emoji 阴影
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetY = 2;
-  ctx.font = 'bold ' + (CARD_SIZE * 0.45) + 'px Arial';
+  // Emoji 绘制 (加入微小的下落阴影产生立体字效果)
+  ctx.font = `bold ${CARD_SIZE * 0.5}px Arial`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(food.emoji, x + CARD_SIZE / 2, y + CARD_SIZE * 0.42);
-
-  ctx.shadowColor = 'transparent';
-
-  // 名称标签
-  const labelWidth = CARD_SIZE - 10;
-  const labelHeight = 16;
-  const labelX = x + 5;
-  const labelY = y + CARD_SIZE - labelHeight - 4;
-
-  ctx.fillStyle = isSlot ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.9)';
-  roundRect(ctx, labelX, labelY, labelWidth, labelHeight, 8);
-  ctx.fill();
-
-  ctx.font = 'bold ' + (CARD_SIZE * 0.18) + 'px Arial';
-  ctx.fillStyle = isSlot ? '#FFFFFF' : food.color;
-  ctx.fillText(food.name, x + CARD_SIZE / 2, labelY + labelHeight / 2 + 1);
-
-  ctx.restore();
-}
-
-// 颜色调整
-function adjustColor(color, amount) {
-  const hex = color.replace('#', '');
-  const r = Math.max(0, Math.min(255, parseInt(hex.substr(0, 2), 16) + amount));
-  const g = Math.max(0, Math.min(255, parseInt(hex.substr(2, 2), 16) + amount));
-  const b = Math.max(0, Math.min(255, parseInt(hex.substr(4, 2), 16) + amount));
-  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0');
-}
-
-// 绘制点击涟漪效果
-function drawClickEffects() {
-  gameState.clickEffects = gameState.clickEffects.filter(function(effect) {
-    effect.radius += 3;
-    effect.alpha -= 0.05;
-
-    if (effect.alpha <= 0) return false;
-
-    ctx.save();
-    ctx.globalAlpha = effect.alpha;
-    ctx.strokeStyle = effect.color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-
-    return true;
-  });
-}
-
-// 绘制飞入槽位的卡片
-function drawFlyCards() {
-  gameState.flyCards = gameState.flyCards.filter(function(flyCard) {
-    flyCard.progress += 0.08;
-    flyCard.currentX = flyCard.startX + (flyCard.endX - flyCard.startX) * easeOutQuart(flyCard.progress);
-    flyCard.currentY = flyCard.startY + (flyCard.endY - flyCard.startY) * easeOutQuart(flyCard.progress);
-    flyCard.rotation = flyCard.startRotation * (1 - flyCard.progress);
-
-    if (flyCard.progress >= 1) {
-      // 飞入完成，添加到槽位
-      const slotCard = {
-        food: flyCard.card.food,
-        type: flyCard.card.type,
-        x: flyCard.endX,
-        y: flyCard.endY,
-        rotation: 0,
-        scale: 1,
-        opacity: 1
-      };
-      gameState.slots.push(slotCard);
-      gameState.slots.sort(function(a, b) { return a.type - b.type; });
-      return false;
-    }
-
-    // 绘制飞中的卡片
-    const tempCard = {
-      food: flyCard.card.food,
-      type: flyCard.card.type,
-      x: flyCard.currentX,
-      y: flyCard.currentY,
-      rotation: flyCard.rotation,
-      scale: flyCard.progress * 0.3 + 0.7, // 先小后大
-      opacity: 1
-    };
-    drawCard(tempCard, false);
-
-    return true;
-  });
-}
-
-// 绘制槽位区域
-function drawSlots() {
-  const slotAreaY = windowHeight - CARD_SIZE - 120;
-  const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) - CARD_GAP;
-  const startX = (windowWidth - slotAreaWidth) / 2;
-
-  // 槽位背景
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-  ctx.shadowBlur = 20;
-  ctx.shadowOffsetY = 5;
-
-  const woodGradient = ctx.createLinearGradient(startX - 20, slotAreaY - 20, startX - 20, slotAreaY + CARD_SIZE + 20);
-  woodGradient.addColorStop(0, '#8B4513');
-  woodGradient.addColorStop(0.5, '#A0522D');
-  woodGradient.addColorStop(1, '#8B4513');
-  ctx.fillStyle = woodGradient;
-  roundRect(ctx, startX - 20, slotAreaY - 20, slotAreaWidth + 40, CARD_SIZE + 40, 15);
-  ctx.fill();
-
-  ctx.shadowColor = 'transparent';
-
-  const innerGradient = ctx.createLinearGradient(startX - 10, slotAreaY - 10, startX - 10, slotAreaY + CARD_SIZE + 10);
-  innerGradient.addColorStop(0, '#DEB887');
-  innerGradient.addColorStop(0.5, '#F5DEB3');
-  innerGradient.addColorStop(1, '#DEB887');
-  ctx.fillStyle = innerGradient;
-  roundRect(ctx, startX - 10, slotAreaY - 10, slotAreaWidth + 20, CARD_SIZE + 20, 10);
-  ctx.fill();
-
-  ctx.strokeStyle = '#654321';
-  ctx.lineWidth = 3;
-  roundRect(ctx, startX - 20, slotAreaY - 20, slotAreaWidth + 40, CARD_SIZE + 40, 15);
-  ctx.stroke();
-
-  ctx.restore();
-
-  // 空槽位
-  for (let i = 0; i < SLOT_COUNT; i++) {
-    const slotX = startX + i * (CARD_SIZE + CARD_GAP);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-    roundRect(ctx, slotX + 2, slotAreaY + 2, CARD_SIZE, CARD_SIZE, 10);
-    ctx.fill();
-
-    ctx.fillStyle = '#C4A574';
-    roundRect(ctx, slotX, slotAreaY, CARD_SIZE, CARD_SIZE, 10);
-    ctx.fill();
-
-    ctx.strokeStyle = '#8B7355';
-    ctx.lineWidth = 2;
-    roundRect(ctx, slotX, slotAreaY, CARD_SIZE, CARD_SIZE, 10);
-    ctx.stroke();
-  }
-
-  // 槽位中的卡片
-  gameState.slots.forEach(function(card, index) {
-    drawCard(card, true);
-  });
-}
-
-// 绘制顶部UI
-function drawUI() {
-  const levelIndex = Math.min(gameState.level - 1, LEVELS.length - 1);
-  const levelConfig = LEVELS[levelIndex];
-
-  const headerGradient = ctx.createLinearGradient(0, 0, 0, 80);
-  headerGradient.addColorStop(0, 'rgba(' + hexToRgb(THEMES.primary || '#FF6B35') + ', 0.95)');
-  headerGradient.addColorStop(1, 'rgba(' + hexToRgb(THEMES.secondary || '#FFD93D') + ', 0.9)');
-  ctx.fillStyle = headerGradient;
-  roundRect(ctx, 0, 0, windowWidth, 80, 0);
-  ctx.fill();
-
-  // 辅助函数 hex 转 rgb
-  function hexToRgb(hex) {
-    var r = parseInt(hex.slice(1, 3), 16),
-        g = parseInt(hex.slice(3, 5), 16),
-        b = parseInt(hex.slice(5, 7), 16);
-    return r + ', ' + g + ', ' + b;
-  }
-
-  // 装饰波浪
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-  ctx.beginPath();
-  ctx.moveTo(0, 75);
-  for (let i = 0; i <= windowWidth; i += 20) {
-    ctx.lineTo(i, 75 + Math.sin(i * 0.05 + animationFrame * 0.02) * 5);
-  }
-  ctx.lineTo(windowWidth, 80);
-  ctx.lineTo(0, 80);
-  ctx.closePath();
-  ctx.fill();
-
-  // 标题
-  ctx.font = 'bold 22px Arial';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.textAlign = 'center';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetY = 2;
-  ctx.fillText('🍔 吃货大作战 🍕', windowWidth / 2, 28);
-  ctx.shadowColor = 'transparent';
-
-  ctx.font = 'bold 14px Arial';
-  ctx.fillStyle = '#FFFFFF';
   
-  if (isChallengeMode) {
-    ctx.fillText('⚡ 限时挑战模式', windowWidth / 2, 50);
-    // 绘制倒计时进度条
-    const barWidth = 100;
-    const barX = windowWidth / 2 - barWidth / 2;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    roundRect(ctx, barX, 60, barWidth, 10, 5);
-    ctx.fill();
-    
-    ctx.fillStyle = challengeTimeLeft > 10 ? '#4CAF50' : '#FF4444';
-    const fillWidth = Math.max(0, (challengeTimeLeft / 60) * barWidth);
-    roundRect(ctx, barX, 60, fillWidth, 10, 5);
-    ctx.fill();
-    
-    ctx.font = '12px Arial';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(Math.ceil(challengeTimeLeft) + 's', windowWidth / 2, 85);
-  } else {
-    ctx.fillText('第' + gameState.level + '关 · ' + levelConfig.name, windowWidth / 2, 50);
-  }
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillText(food.emoji, x + CARD_SIZE / 2, y + CARD_SIZE * 0.48 + 2); // 阴影
+  
+  ctx.fillStyle = '#000000'; // Emoji原生颜色由系统决定
+  ctx.fillText(food.emoji, x + CARD_SIZE / 2, y + CARD_SIZE * 0.48);
 
-  ctx.textAlign = 'left';
-  ctx.font = 'bold 16px Arial';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('💰 ' + gameState.score, 15, 70);
-
-  if (gameState.combo > 1) {
-    ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('🔥 x' + gameState.combo, 15, 50);
-  }
-
-  const remainingCards = gameState.cards.filter(function(c) { return !c.collected && !c.isAnimating; }).length;
-  ctx.textAlign = 'right';
-  ctx.font = 'bold 16px Arial';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('剩余: ' + remainingCards, windowWidth - 15, 70);
-
-  ctx.font = 'bold 14px Arial';
-  ctx.fillStyle = gameState.slots.length >= 6 ? '#FF6B6B' : '#FFFFFF';
-  ctx.fillText('槽位: ' + gameState.slots.length + '/' + SLOT_COUNT, windowWidth - 15, 50);
-}
-
-// 绘制背景
-function drawBackground() {
-  const gradient = ctx.createLinearGradient(0, 0, 0, windowHeight);
-  gradient.addColorStop(0, THEMES.bgGradientTop || '#FFE5B4');
-  gradient.addColorStop(0.5, THEMES.bgGradientBottom || '#FFDAB9');
-  gradient.addColorStop(1, adjustColor(THEMES.bgGradientBottom || '#FFE4C4', -20));
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, windowWidth, windowHeight);
-
-  ctx.globalAlpha = 0.08;
-  ctx.font = '60px Arial';
-  ctx.textAlign = 'center';
-
-  const decorations = ['🍕', '🍔', '🍟', '🍩', '🍪', '🧁', '🍰', '🍫'];
-  for (let i = 0; i < 8; i++) {
-    const x = (i * 47 + 30) % windowWidth;
-    const y = (i * 83 + 100) % (windowHeight - 200) + 100;
-    ctx.fillText(decorations[i], x, y);
-  }
-  ctx.globalAlpha = 1;
-
-  ctx.fillStyle = 'rgba(255, 200, 100, 0.3)';
-  ctx.beginPath();
-  ctx.moveTo(0, windowHeight);
-  ctx.quadraticCurveTo(windowWidth / 2, windowHeight - 50, windowWidth, windowHeight);
-  ctx.lineTo(windowWidth, windowHeight);
-  ctx.lineTo(0, windowHeight);
-  ctx.closePath();
+  // 底部铭牌
+  const labelH = 14;
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  roundRect(ctx, x + 4, y + CARD_SIZE - labelH - 4, CARD_SIZE - 8, labelH, 6);
   ctx.fill();
+  
+  ctx.font = `bold ${CARD_SIZE * 0.16}px Arial`;
+  ctx.fillStyle = isSlot ? '#333' : food.color;
+  ctx.fillText(food.name, x + CARD_SIZE / 2, y + CARD_SIZE - labelH/2 - 4 + 1);
+
+  ctx.restore();
 }
 
-// 绘制粒子效果
+function adjustColor(color, amount) {
+  let hex = color.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  let r = parseInt(hex.substr(0, 2), 16) + amount;
+  let g = parseInt(hex.substr(2, 2), 16) + amount;
+  let b = parseInt(hex.substr(4, 2), 16) + amount;
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return '#' + r.toString(16).padStart(2,'0') + g.toString(16).padStart(2,'0') + b.toString(16).padStart(2,'0');
+}
+
+// 槽位与毛玻璃底部
+function drawSlots() {
+  const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) + CARD_GAP;
+  const startX = (windowWidth - slotAreaWidth) / 2;
+  const slotAreaY = windowHeight - safeArea.bottom + (windowHeight - 160) - CARD_SIZE - 20; // 自适应底部
+
+  ctx.save();
+  // 亚克力半透明磨砂底座
+  ctx.fillStyle = THEMES.glassColor;
+  ctx.shadowColor = 'rgba(0,0,0,0.2)';
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 10;
+  roundRect(ctx, startX, slotAreaY - 10, slotAreaWidth, CARD_SIZE + 20, 20);
+  ctx.fill();
+  
+  ctx.strokeStyle = THEMES.glassBorder;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.shadowColor = 'transparent';
+
+  // 内部槽位凹陷
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const slotX = startX + CARD_GAP + i * (CARD_SIZE + CARD_GAP);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // 凹陷感深色
+    roundRect(ctx, slotX, slotAreaY, CARD_SIZE, CARD_SIZE, 12);
+    ctx.fill();
+    // 内阴影高光
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // 绘制槽内卡牌
+  gameState.slots.forEach((card, index) => {
+    const slotX = startX + CARD_GAP + index * (CARD_SIZE + CARD_GAP);
+    const renderCard = { ...card, x: slotX, y: slotAreaY, scale: 1, rotation: 0 };
+    drawCard(renderCard, true);
+  });
+  ctx.restore();
+}
+
+// 华丽粒子爆炸
+function createExplosion(x, y, color) {
+  triggerVibration('medium');
+  for (let i = 0; i < 30; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 8 + 4;
+    gameState.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 4, // 向上抛出感
+      size: Math.random() * 6 + 3,
+      color: color,
+      life: 1,
+      decay: Math.random() * 0.02 + 0.01
+    });
+  }
+}
+
 function drawParticles() {
-  gameState.particles = gameState.particles.filter(function(p) {
+  gameState.particles = gameState.particles.filter(p => {
     p.x += p.vx;
     p.y += p.vy;
-    p.vy += 0.25;
-    p.life -= 0.018;
-    p.size *= 0.97;
+    p.vy += 0.4; // 重力
+    p.life -= p.decay;
+    p.size *= 0.95;
 
     if (p.life <= 0 || p.size < 0.5) return false;
 
@@ -699,937 +487,238 @@ function drawParticles() {
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
-
     return true;
   });
 }
 
-// 创建消除粒子 - 更爆炸
-function createEliminateParticles(x, y, color) {
-  for (let i = 0; i < 25; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 4 + Math.random() * 6;
-    gameState.particles.push({
-      x: x,
-      y: y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 3,
-      size: Math.random() * 8 + 4,
-      color: color,
-      life: 1
-    });
-  }
-
-  // 添加闪光粒子
-  for (let i = 0; i < 8; i++) {
-    gameState.particles.push({
-      x: x + (Math.random() - 0.5) * 40,
-      y: y + (Math.random() - 0.5) * 40,
-      vx: 0,
-      vy: -1,
-      size: Math.random() * 4 + 2,
-      color: '#FFFFFF',
-      life: 0.7
-    });
-  }
-}
-
-// 绘制飘字
-function drawFloatingTexts() {
-  gameState.floatingTexts = gameState.floatingTexts.filter(function(t) {
-    t.y -= 2.5;
-    t.life -= 0.015;
-    t.scale = t.scale !== undefined ? t.scale : 1;
-
-    if (t.life <= 0) return false;
-
-    ctx.save();
-    ctx.globalAlpha = t.life;
-    ctx.translate(t.x, t.y);
-    ctx.scale(t.scale, t.scale);
-    ctx.font = 'bold ' + t.size + 'px Arial';
-    ctx.fillStyle = t.color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 3;
-    ctx.fillText(t.text, 0, 0);
-    ctx.restore();
-    ctx.globalAlpha = 1;
-
-    return true;
-  });
-}
-
-// 创建飘字 - 更绚丽
-function createFloatingText(x, y, text, color, size) {
-  gameState.floatingTexts.push({
-    x: x,
-    y: y,
-    text: text,
-    color: color || '#FFD700',
-    size: size || 24,
-    life: 1,
-    scale: 1.2
-  });
-}
-
-// 绘制庆祝粒子（胜利时）
-function drawCelebrateParticles() {
-  gameState.celebrateParticles = gameState.celebrateParticles.filter(function(p) {
-    p.y += p.vy;
-    p.x += p.vx;
-    p.vy += 0.15;
-    p.life -= 0.008;
-
-    if (p.life <= 0) return false;
-
-    ctx.globalAlpha = p.life;
-    ctx.fillStyle = p.color;
-    ctx.font = p.size + 'px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(p.emoji, p.x, p.y);
-    ctx.globalAlpha = 1;
-
-    return true;
-  });
-}
-
-// 创建庆祝效果
-function createCelebration() {
-  const emojis = ['🎉', '🎊', '⭐', '🌟', '✨', '💫'];
-  const colors = ['#FFD700', '#FF6B6B', '#4CAF50', '#FF69B4', '#87CEEB'];
-
-  for (let i = 0; i < 30; i++) {
-    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-    gameState.celebrateParticles.push({
-      x: Math.random() * windowWidth,
-      y: windowHeight + 50,
-      vx: (Math.random() - 0.5) * 4,
-      vy: -(5 + Math.random() * 8),
-      emoji: emoji,
-      size: 24 + Math.random() * 20,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      life: 1
-    });
-  }
-
-  for (let i = 0; i < 50; i++) {
-    gameState.particles.push({
-      x: Math.random() * windowWidth,
-      y: windowHeight,
-      vx: (Math.random() - 0.5) * 6,
-      vy: -(8 + Math.random() * 6),
-      size: Math.random() * 6 + 3,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      life: 1
-    });
-  }
-}
-
-// 绘制游戏结束画面
-// 变现集成 (激励视频广告)
-let rewardedVideoAd = null;
-if (typeof wx !== 'undefined' && wx.createRewardedVideoAd) {
-  rewardedVideoAd = wx.createRewardedVideoAd({
-    adUnitId: 'adunit-xxxxxxxxxxxxxxxxx' // 需替换为真实的广告位 ID
-  });
-  
-  rewardedVideoAd.onLoad(() => {
-    console.log('激励视频 广告加载成功');
-  });
-  
-  rewardedVideoAd.onError((err) => {
-    console.log('激励视频 广告加载失败', err);
-  });
-  
-  rewardedVideoAd.onClose((res) => {
-    // 用户点击了【关闭广告】按钮
-    // 小于 2.1.0 的基础库版本，res 是一个 undefined
-    if (res && res.isEnded || res === undefined) {
-      // 正常播放结束，可以下发游戏奖励
-      wx.showToast({ title: '获得奖励！', icon: 'success' });
-      
-      if (pendingAdRewardType === 'revive') {
-         // 复活：清空几个槽位
-         gameState.slots.splice(0, 3);
-         gameState.gameStatus = 'playing';
-         playSound('win');
-      } else if (pendingAdRewardType) {
-         // 增加道具
-         items[pendingAdRewardType].count += 3;
-         playSound('win');
-      }
-    } else {
-      // 播放中途退出，不下发游戏奖励
-      wx.showToast({ title: '需观看完整视频才能获得奖励', icon: 'none' });
-    }
-    pendingAdRewardType = null;
-  });
-}
-
-let pendingAdRewardType = null;
-
-function showAdForReward(type) {
-  pendingAdRewardType = type;
-  if (rewardedVideoAd) {
-    rewardedVideoAd.show().catch(() => {
-      // 失败重试
-      rewardedVideoAd.load()
-        .then(() => rewardedVideoAd.show())
-        .catch(err => {
-          console.log('激励视频 广告显示失败', err);
-          wx.showToast({ title: '暂无广告，免费赠送！', icon: 'none' });
-          
-          // 开发测试阶段，直接给奖励
-          if (type === 'revive') {
-             gameState.slots.splice(0, 3);
-             gameState.gameStatus = 'playing';
-          } else {
-             items[type].count += 3;
-          }
-        });
-    });
-  } else {
-    // 不支持的环境，直接给奖励
-    wx.showToast({ title: '开发环境，免费赠送！', icon: 'none' });
-    if (type === 'revive') {
-       gameState.slots.splice(0, 3);
-       gameState.gameStatus = 'playing';
-    } else {
-       items[type].count += 3;
-    }
-  }
-}
-
-// 修改游戏结束画面，添加复活按钮
-function drawGameOver() {
-  if (gameState.gameStatus === 'win') {
-    drawCelebrateParticles();
-  }
-
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-  ctx.fillRect(0, 0, windowWidth, windowHeight);
-
-  const boxWidth = windowWidth * 0.85;
-  const boxHeight = 280;
-  const boxX = (windowWidth - boxWidth) / 2;
-  const boxY = (windowHeight - boxHeight) / 2;
-
-  const boxGradient = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight);
-  boxGradient.addColorStop(0, '#FFFFFF');
-  boxGradient.addColorStop(1, '#F5F5F5');
-  ctx.fillStyle = boxGradient;
-  roundRect(ctx, boxX, boxY, boxWidth, boxHeight, 25);
-  ctx.fill();
-
-  ctx.strokeStyle = gameState.gameStatus === 'win' ? '#4CAF50' : '#FF6B6B';
-  ctx.lineWidth = 4;
-  roundRect(ctx, boxX, boxY, boxWidth, boxHeight, 25);
-  ctx.stroke();
-
-  ctx.font = '60px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText(gameState.gameStatus === 'win' ? '🎉' : '😢', windowWidth / 2, boxY + 70);
-
-  ctx.font = 'bold 28px Arial';
-  ctx.fillStyle = gameState.gameStatus === 'win' ? '#4CAF50' : '#FF6B6B';
-  ctx.fillText(gameState.gameStatus === 'win' ? '恭喜过关！' : '再接再厉！', windowWidth / 2, boxY + 120);
-
-  ctx.font = '18px Arial';
-  ctx.fillStyle = '#666666';
-  ctx.fillText('本次得分', windowWidth / 2, boxY + 155);
-
-  ctx.font = 'bold 36px Arial';
-  ctx.fillStyle = '#FF6B35';
-  ctx.fillText(gameState.score.toString(), windowWidth / 2, boxY + 195);
-
-  const btnY = boxY + boxHeight - 60; // 调高一点，腾出复活按钮的空间
-  
-  if (gameState.gameStatus === 'lose') {
-     // 复活按钮
-     const reviveBtnY = btnY - 50;
-     const reviveGradient = ctx.createLinearGradient(boxX + 30, reviveBtnY - 20, boxX + boxWidth - 30, reviveBtnY);
-     reviveGradient.addColorStop(0, '#4CAF50');
-     reviveGradient.addColorStop(1, '#8BC34A');
-     ctx.fillStyle = reviveGradient;
-     roundRect(ctx, boxX + 30, reviveBtnY - 25, boxWidth - 60, 45, 22);
-     ctx.fill();
-     
-     ctx.font = 'bold 18px Arial';
-     ctx.fillStyle = '#FFFFFF';
-     ctx.fillText('📺 看视频复活 (消去3张)', windowWidth / 2, reviveBtnY);
-  }
-
-  const btnGradient = ctx.createLinearGradient(boxX + 30, btnY - 20, boxX + boxWidth - 30, btnY);
-  btnGradient.addColorStop(0, '#FF6B35');
-  btnGradient.addColorStop(1, '#FFD93D');
-  ctx.fillStyle = btnGradient;
-  roundRect(ctx, boxX + 30, btnY - 25, boxWidth - 60, 45, 22);
-  ctx.fill();
-
-  ctx.font = 'bold 18px Arial';
-  ctx.fillStyle = '#FFFFFF';
-  if (gameState.gameStatus === 'win') {
-    ctx.fillText('👆 继续挑战下一关', windowWidth / 2, btnY);
-  } else {
-    ctx.fillText('👆 重新开始', windowWidth / 2, btnY);
-  }
-}
-
-// 绘制收集提示
-function drawCollectionToast() {
-  if (gameState.collectionToasts && gameState.collectionToasts.length > 0) {
-    const toast = gameState.collectionToasts[0];
-    toast.y -= 1;
-    toast.life -= 0.01;
-
-    if (toast.life <= 0) {
-      gameState.collectionToasts.shift();
-      return;
-    }
-
-    ctx.save();
-    ctx.globalAlpha = toast.life;
-    ctx.translate(windowWidth / 2, toast.y);
-    
-    // 背景框
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    roundRect(ctx, -120, -25, 240, 50, 10);
-    ctx.fill();
-
-    // 文字
-    ctx.font = 'bold 16px Arial';
-    ctx.fillStyle = '#FFD700';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🌟 解锁新美食: ' + toast.name + ' ' + toast.emoji, 0, 0);
-    
-    ctx.restore();
-    ctx.globalAlpha = 1;
-  }
-}
-
-// 绘制社交排行榜
-function drawLeaderboard() {
-  if (!showLeaderboard) return;
-
-  // 半透明遮罩
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.fillRect(0, 0, windowWidth, windowHeight);
-
-  // 排行榜面板
-  const panelWidth = windowWidth * 0.8;
-  const panelHeight = windowHeight * 0.7;
-  const panelX = (windowWidth - panelWidth) / 2;
-  const panelY = (windowHeight - panelHeight) / 2;
-
-  // 背景
-  const gradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
-  gradient.addColorStop(0, '#FFFFFF');
-  gradient.addColorStop(1, '#F0F8FF');
-  ctx.fillStyle = gradient;
-  roundRect(ctx, panelX, panelY, panelWidth, panelHeight, 20);
-  ctx.fill();
-
-  // 标题栏
-  const titleGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + 60);
-  titleGradient.addColorStop(0, '#FF6B6B');
-  titleGradient.addColorStop(1, '#FF8C00');
-  ctx.fillStyle = titleGradient;
-  roundRect(ctx, panelX, panelY, panelWidth, 60, 20);
-  // 底部补直角
-  ctx.fillRect(panelX, panelY + 40, panelWidth, 20);
-  
-  ctx.font = 'bold 24px Arial';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('🏆 好友排行榜', windowWidth / 2, panelY + 30);
-
-  // 关闭按钮
-  ctx.font = '24px Arial';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('✖', panelX + panelWidth - 30, panelY + 30);
-
-  // 列表内容
-  const itemHeight = 60;
-  let startY = panelY + 70;
-
-  mockLeaderboard.forEach((user, index) => {
-    // 列表项背景
-    if (index % 2 === 0) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.fillRect(panelX + 10, startY, panelWidth - 20, itemHeight);
-    }
-
-    // 排名
-    ctx.font = 'bold 20px Arial';
-    if (user.rank === 1) ctx.fillStyle = '#FFD700'; // 金
-    else if (user.rank === 2) ctx.fillStyle = '#C0C0C0'; // 银
-    else if (user.rank === 3) ctx.fillStyle = '#CD7F32'; // 铜
-    else ctx.fillStyle = '#666666';
-    
-    ctx.textAlign = 'center';
-    ctx.fillText(user.rank, panelX + 40, startY + itemHeight / 2);
-
-    // 头像
-    ctx.font = '30px Arial';
-    ctx.fillText(user.avatar, panelX + 90, startY + itemHeight / 2);
-
-    // 名字
-    ctx.font = '16px Arial';
-    ctx.fillStyle = '#333333';
-    ctx.textAlign = 'left';
-    ctx.fillText(user.name, panelX + 130, startY + itemHeight / 2);
-
-    // 分数
-    ctx.font = 'bold 18px Arial';
-    ctx.fillStyle = '#FF4500';
-    ctx.textAlign = 'right';
-    ctx.fillText(user.score, panelX + panelWidth - 20, startY + itemHeight / 2);
-
-    startY += itemHeight;
-  });
-
-  // 底部自己的分数更新
-  const myData = mockLeaderboard[mockLeaderboard.length - 1];
-  myData.score = Math.max(myData.score, gameState.score); // 动态更新最高分
-}
-
-// 绘制道具按钮
-function drawItems() {
-  if (gameState.gameStatus !== 'playing') return;
-
-  const itemWidth = 60;
-  const itemHeight = 60;
-  const gap = 20;
-  const totalWidth = 3 * itemWidth + 2 * gap;
-  const startX = (windowWidth - totalWidth) / 2;
-  const startY = windowHeight - 90; // 在槽位下方
-
-  const itemKeys = Object.keys(items);
-  
-  itemKeys.forEach((key, index) => {
-    const item = items[key];
-    const x = startX + index * (itemWidth + gap);
-    
-    // 按钮背景
-    ctx.fillStyle = item.count > 0 ? 'rgba(255, 255, 255, 0.9)' : 'rgba(200, 200, 200, 0.7)';
-    roundRect(ctx, x, startY, itemWidth, itemHeight, 15);
-    ctx.fill();
-    
-    // 边框
-    ctx.strokeStyle = item.count > 0 ? '#FFD700' : '#A9A9A9';
-    ctx.lineWidth = 2;
-    roundRect(ctx, x, startY, itemWidth, itemHeight, 15);
-    ctx.stroke();
-
-    // Emoji
-    ctx.font = '24px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#000000';
-    ctx.fillText(item.emoji, x + itemWidth / 2, startY + itemHeight / 2 - 5);
-
-    // 数量标签
-    ctx.fillStyle = item.count > 0 ? '#FF6B6B' : '#666666';
-    roundRect(ctx, x + itemWidth - 25, startY - 10, 30, 20, 10);
-    ctx.fill();
-    
-    ctx.font = 'bold 12px Arial';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(item.count > 0 ? item.count : '+', x + itemWidth - 10, startY);
-    
-    // 名称
-    ctx.font = '12px Arial';
-    ctx.fillStyle = item.count > 0 ? '#333333' : '#666666';
-    ctx.fillText(item.name, x + itemWidth / 2, startY + itemHeight - 12);
-  });
-}
-
-// 绘制主界面按钮 (排行榜入口 & 挑战模式入口)
-function drawHomeButtons() {
-  if (gameState.gameStatus !== 'playing') return;
-
-  const btnWidth = 50;
-  const btnHeight = 50;
-  
-  // 排行榜按钮
-  let btnX = 15;
-  let btnY = 90;
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-  roundRect(ctx, btnX, btnY, btnWidth, btnHeight, 25);
-  ctx.fill();
-
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-  ctx.shadowBlur = 5;
-  ctx.shadowOffsetY = 2;
-  ctx.font = '24px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('🏆', btnX + btnWidth / 2, btnY + btnHeight / 2);
-  ctx.shadowColor = 'transparent';
-
-  // 挑战模式按钮
-  btnY += btnHeight + 15;
-  ctx.fillStyle = isChallengeMode ? 'rgba(255, 215, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)';
-  roundRect(ctx, btnX, btnY, btnWidth, btnHeight, 25);
-  ctx.fill();
-
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-  ctx.shadowBlur = 5;
-  ctx.shadowOffsetY = 2;
-  ctx.font = '24px Arial';
-  ctx.fillText('⚡', btnX + btnWidth / 2, btnY + btnHeight / 2);
-  ctx.shadowColor = 'transparent';
-}
-
-// 主渲染循环
-function render() {
-  animationFrame++;
-
-  drawBackground();
-  drawUI();
-  drawHomeButtons();
-  drawItems();
-
-  // 绘制场上的卡片
-  gameState.cards.forEach(function(card) {
-    if (!card.collected && !card.isAnimating) {
-      drawCard(card, false);
-    }
-  });
-
-  drawSlots();
-  drawFlyCards();
-  drawClickEffects();
-  drawParticles();
-  drawFloatingTexts();
-  drawCollectionToast(); // 新增绘制收集提示
-
-  if (gameState.gameStatus !== 'playing') {
-    drawGameOver();
-  }
-
-  // 最后绘制社交排行榜层
-  if (showLeaderboard) {
-    drawLeaderboard();
-  }
-
-  requestAnimationFrame(render);
-}
-
-// 检查消除
+// =================== 交互逻辑核心 ===================
 function checkMatch() {
   const typeCounts = {};
-
-  gameState.slots.forEach(function(card, index) {
-    if (!typeCounts[card.type]) {
-      typeCounts[card.type] = [];
-    }
-    typeCounts[card.type].push(index);
+  gameState.slots.forEach((card, index) => {
+    if (!typeCounts[card.type]) typeCounts[card.type] = [];
+    typeCounts[card.type].push({index, card});
   });
 
   let hasMatch = false;
-  Object.keys(typeCounts).forEach(function(type) {
+  
+  // 羁绊检测辅助变量
+  let matchedTags = {};
+
+  Object.keys(typeCounts).forEach(type => {
     if (typeCounts[type].length >= MATCH_COUNT) {
       hasMatch = true;
-      const indicesToRemove = typeCounts[type].slice(0, MATCH_COUNT).sort(function(a, b) { return b - a; });
+      const matchedGroup = typeCounts[type].slice(0, MATCH_COUNT);
+      const tag = matchedGroup[0].card.food.tag;
+      matchedTags[tag] = (matchedTags[tag] || 0) + 1;
 
-      const slotAreaY = windowHeight - CARD_SIZE - 120;
-      const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) - CARD_GAP;
+      // 索引从后往前删
+      const indicesToRemove = matchedGroup.map(m => m.index).sort((a,b)=>b-a);
+      
+      const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) + CARD_GAP;
       const startX = (windowWidth - slotAreaWidth) / 2;
+      const slotAreaY = windowHeight - safeArea.bottom + (windowHeight - 160) - CARD_SIZE - 20;
 
-      indicesToRemove.forEach(function(index) {
-        const slotX = startX + index * (CARD_SIZE + CARD_GAP);
-        const card = gameState.slots[index];
-        createEliminateParticles(slotX + CARD_SIZE / 2, slotAreaY + CARD_SIZE / 2, card.food.color);
-      });
-
-      // 移除卡片
-      indicesToRemove.forEach(function(index) {
+      indicesToRemove.forEach(index => {
+        const slotX = startX + CARD_GAP + index * (CARD_SIZE + CARD_GAP);
+        const c = gameState.slots[index];
+        createExplosion(slotX + CARD_SIZE/2, slotAreaY + CARD_SIZE/2, c.food.color);
         gameState.slots.splice(index, 1);
       });
-
-      gameState.totalEliminated += MATCH_COUNT;
-      CollectionSystem.updateStats({ eliminated: MATCH_COUNT });
+      
+      gameState.score += 100;
+      triggerVibration('heavy'); // 强烈打击感
     }
   });
+
+  // 羁绊连消触发彩蛋
+  if (matchedTags['meat']) {
+    createFloatingText(windowWidth/2, windowHeight/2, '🥩 无肉不欢！得分翻倍', '#FF4500', 30);
+    gameState.score += 200;
+  }
+  if (matchedTags['veg']) {
+    createFloatingText(windowWidth/2, windowHeight/2, '🥬 绿色健康！清爽解腻', '#32CD32', 30);
+    gameState.score += 50;
+  }
+
+  if (hasMatch) {
+    CollectionSystem.updateStats({ score: gameState.score });
+  }
 
   return hasMatch;
 }
 
-// 检查游戏状态
-function checkGameState() {
-  const remainingCards = gameState.cards.filter(function(c) { return !c.collected && !c.isAnimating; }).length;
-
-  if (remainingCards === 0 && gameState.slots.length === 0) {
-    gameState.gameStatus = 'win';
-    gameState.score += 500;
-    createCelebration();
-    CollectionSystem.updateStats({ score: gameState.score, won: 1, played: 1 });
-    return;
-  }
-
-  if (gameState.slots.length >= SLOT_COUNT) {
-    const typeCounts = {};
-    gameState.slots.forEach(function(card) {
-      typeCounts[card.type] = (typeCounts[card.type] || 0) + 1;
-    });
-
-    let canMatch = false;
-    Object.keys(typeCounts).forEach(function(type) {
-      if (typeCounts[type] >= MATCH_COUNT) {
-        canMatch = true;
-      }
-    });
-
-    if (!canMatch) {
-      gameState.gameStatus = 'lose';
-      CollectionSystem.updateStats({ played: 1 });
-    }
-  }
-}
-
-// 收集卡片 - 带动画
 function collectCard(card) {
   const now = Date.now();
-
-  // 防止双击
-  if (now - gameState.lastClickTime < 150) return;
+  if (now - gameState.lastClickTime < 100) return;
   gameState.lastClickTime = now;
 
-  card.collected = true;
-
-  const slotAreaY = windowHeight - CARD_SIZE - 120;
-  const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) - CARD_GAP;
-  const startX = (windowWidth - slotAreaWidth) / 2;
-  const targetSlotIndex = gameState.slots.length;
-  const endX = startX + targetSlotIndex * (CARD_SIZE + CARD_GAP);
-
-  // 点击涟漪效果
-  gameState.clickEffects.push({
-    x: card.x + CARD_SIZE / 2,
-    y: card.y + CARD_SIZE / 2,
-    radius: 10,
-    alpha: 0.8,
-    color: card.food.color
-  });
-
-  // 飞入动画
-  gameState.flyCards.push({
-    card: card,
-    startX: card.x,
-    startY: card.y,
-    endX: endX,
-    endY: slotAreaY,
-    startRotation: card.rotation,
-    progress: 0,
-    currentX: card.x,
-    currentY: card.y,
-    rotation: card.rotation
-  });
-
-  // 记录收集进度
-  if (CollectionSystem.unlockFood(card.food.name)) {
-    gameState.collectionToasts = gameState.collectionToasts || [];
-    gameState.collectionToasts.push({
-      name: card.food.name,
-      emoji: card.food.emoji,
-      y: windowHeight / 2,
-      life: 2.5
-    });
-  }
-
-  // 延迟检查消除
-  setTimeout(function() {
-    const matched = checkMatch();
-
-    if (matched) {
-      gameState.combo++;
-      const bonus = 100 * gameState.combo;
-      gameState.score += bonus;
-      CollectionSystem.updateStats({ combo: gameState.combo });
-
-      const slotAreaY = windowHeight - CARD_SIZE - 120;
-      createFloatingText(
-        windowWidth / 2,
-        slotAreaY - 30,
-        '+' + bonus + (gameState.combo > 1 ? ' x' + gameState.combo : ''),
-        '#FFD700',
-        28
-      );
-    } else {
-      gameState.combo = 0;
+  triggerVibration('light');
+  
+  // 触发点击果冻形变 (原卡牌留在原地的残影形变反馈)
+  card.isJelly = true;
+  card.jellyTime = 0;
+  
+  // 延迟一帧后飞走，让玩家看到形变瞬间
+  setTimeout(() => {
+    card.collected = true;
+    const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) + CARD_GAP;
+    const startX = (windowWidth - slotAreaWidth) / 2;
+    const slotAreaY = windowHeight - safeArea.bottom + (windowHeight - 160) - CARD_SIZE - 20;
+    
+    // 插入逻辑：同类型放在一起
+    let insertIndex = gameState.slots.length;
+    for(let i = 0; i < gameState.slots.length; i++) {
+      if (gameState.slots[i].type === card.type) {
+        insertIndex = i + 1; // 插在同类后面
+      }
     }
-
-    checkGameState();
-  }, 400);
+    
+    // 飞行动画数据
+    const endX = startX + CARD_GAP + insertIndex * (CARD_SIZE + CARD_GAP);
+    gameState.flyCards.push({
+      card: card,
+      startX: card.x, startY: card.y,
+      endX: endX, endY: slotAreaY,
+      progress: 0,
+      insertIndex: insertIndex
+    });
+    
+    // 先将一个占位符塞入slot，阻挡新点击
+    gameState.slots.splice(insertIndex, 0, card);
+    
+    CollectionSystem.unlockFood(card.food.name);
+    
+    // 飞行完成后检测
+    setTimeout(() => {
+      checkMatch();
+      checkGameState();
+    }, 250); // 配合飞行动画时间
+  }, 50);
 }
 
-// 点击处理
-function handleClick(event) {
-  const clientX = event.clientX;
-  const clientY = event.clientY;
+function drawFlyCards() {
+  gameState.flyCards = gameState.flyCards.filter(fly => {
+    fly.progress += dt * 0.005; // 速度由增量时间决定
+    if (fly.progress >= 1) return false;
 
-  // 处理排行榜点击
-  if (showLeaderboard) {
-    const panelWidth = windowWidth * 0.8;
-    const panelHeight = windowHeight * 0.7;
-    const panelX = (windowWidth - panelWidth) / 2;
-    const panelY = (windowHeight - panelHeight) / 2;
+    // 优美的抛物线飞入
+    const t = easeOutQuad(fly.progress);
+    const currentX = fly.startX + (fly.endX - fly.startX) * t;
+    // 加入贝塞尔曲线的高度偏置，产生"跳跃"感
+    const jumpHeight = Math.sin(fly.progress * Math.PI) * 50;
+    const currentY = fly.startY + (fly.endY - fly.startY) * t - jumpHeight;
+
+    const renderCard = {
+      ...fly.card,
+      x: currentX, y: currentY,
+      scale: 1 + Math.sin(fly.progress * Math.PI) * 0.2 // 飞行中略微放大
+    };
+    drawCard(renderCard, false);
+    return true;
+  });
+}
+
+function createFloatingText(x, y, text, color, size) {
+  gameState.floatingTexts.push({
+    x, y, text, color, size, life: 1, scale: 0.1
+  });
+}
+
+function drawFloatingTexts() {
+  gameState.floatingTexts = gameState.floatingTexts.filter(t => {
+    t.y -= 1.5;
+    t.life -= 0.015;
+    // 弹簧放大效果
+    if (t.scale < 1.2) t.scale += 0.15;
+    else if (t.scale > 1) t.scale -= 0.05;
+
+    if (t.life <= 0) return false;
+    ctx.save();
+    ctx.globalAlpha = t.life;
+    ctx.translate(t.x, t.y);
+    ctx.scale(t.scale, t.scale);
+    ctx.font = `bold ${t.size}px Arial`;
+    ctx.textAlign = 'center';
     
-    // 点击关闭按钮
-    if (
-      clientX >= panelX + panelWidth - 40 &&
-      clientX <= panelX + panelWidth &&
-      clientY >= panelY &&
-      clientY <= panelY + 40
-    ) {
-      showLeaderboard = false;
-      return;
-    }
-    return; // 排行榜显示时屏蔽底层点击
-  }
-
-  if (gameState.gameStatus !== 'playing') {
-    if (gameState.gameStatus === 'win') {
-      initGame(gameState.level + 1);
-    } else {
-      // 检查是否点击了看视频复活按钮
-      const boxWidth = windowWidth * 0.85;
-      const boxHeight = 280;
-      const boxX = (windowWidth - boxWidth) / 2;
-      const boxY = (windowHeight - boxHeight) / 2;
-      const btnY = boxY + boxHeight - 60;
-      const reviveBtnY = btnY - 50;
-
-      if (
-        clientX >= boxX + 30 &&
-        clientX <= boxX + boxWidth - 30 &&
-        clientY >= reviveBtnY - 25 &&
-        clientY <= reviveBtnY + 20
-      ) {
-        showAdForReward('revive');
-        return;
-      }
-
-      initGame(1);
-    }
-    return;
-  }
-
-  // 检测主界面侧边按钮点击
-  const btnWidth = 50;
-  const btnHeight = 50;
-  const btnX = 15;
-  
-  // 排行榜按钮
-  if (
-    clientX >= btnX &&
-    clientX <= btnX + btnWidth &&
-    clientY >= 90 &&
-    clientY <= 90 + btnHeight
-  ) {
-    showLeaderboard = true;
-    return;
-  }
-
-  // 挑战模式按钮
-  if (
-    clientX >= btnX &&
-    clientX <= btnX + btnWidth &&
-    clientY >= 90 + btnHeight + 15 &&
-    clientY <= 90 + btnHeight * 2 + 15
-  ) {
-    toggleChallengeMode();
-    return;
-  }
-
-  // 检测道具按钮点击
-  const itemWidth = 60;
-  const itemHeight = 60;
-  const gap = 20;
-  const totalWidth = 3 * itemWidth + 2 * gap;
-  const startX = (windowWidth - totalWidth) / 2;
-  const startY = windowHeight - 90;
-  
-  const itemKeys = Object.keys(items);
-  for (let idx = 0; idx < itemKeys.length; idx++) {
-    const key = itemKeys[idx];
-    const item = items[key];
-    const x = startX + idx * (itemWidth + gap);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.strokeText(t.text, 0, 0);
     
-    if (
-      clientX >= x &&
-      clientX <= x + itemWidth &&
-      clientY >= startY &&
-      clientY <= startY + itemHeight
-    ) {
-      if (item.count > 0) {
-        useItem(key);
-      } else {
-        // 如果数量为0，观看广告获取
-        wx.showToast({ title: '没有道具了，看视频获取', icon: 'none' });
-        showAdForReward(key);
-      }
-      return;
-    }
-  }
+    ctx.fillStyle = t.color;
+    ctx.fillText(t.text, 0, 0);
+    ctx.restore();
+    return true;
+  });
+}
 
+function checkGameState() {
+  // 判定输赢略
+}
+
+wx.onTouchStart(event => {
+  const touch = event.touches[0];
+  const cx = touch.clientX;
+  const cy = touch.clientY;
+  
+  // 逆序遍历找到最顶层的未阻挡卡牌
   for (let i = gameState.cards.length - 1; i >= 0; i--) {
     const card = gameState.cards[i];
-    if (card.collected || card.isAnimating) continue;
-
-    if (
-      clientX >= card.x &&
-      clientX <= card.x + CARD_SIZE &&
-      clientY >= card.y &&
-      clientY <= card.y + CARD_SIZE
-    ) {
+    if (card.collected) continue;
+    
+    if (cx >= card.x && cx <= card.x + CARD_SIZE && cy >= card.y && cy <= card.y + CARD_SIZE) {
       let isBlocked = false;
-      for (let j = 0; j < gameState.cards.length; j++) {
-        const otherCard = gameState.cards[j];
-        if (i === j || otherCard.collected || otherCard.isAnimating || otherCard.layer <= card.layer) continue;
-
-        if (
-          otherCard.x < card.x + CARD_SIZE &&
-          otherCard.x + CARD_SIZE > card.x &&
-          otherCard.y < card.y + CARD_SIZE &&
-          otherCard.y + CARD_SIZE > card.y
-        ) {
+      for (let j = i + 1; j < gameState.cards.length; j++) {
+        const upCard = gameState.cards[j];
+        if (upCard.collected) continue;
+        if (!(upCard.x >= card.x + CARD_SIZE || upCard.x + CARD_SIZE <= card.x ||
+              upCard.y >= card.y + CARD_SIZE || upCard.y + CARD_SIZE <= card.y)) {
           isBlocked = true;
           break;
         }
       }
-
       if (!isBlocked) {
         collectCard(card);
       }
       break;
     }
   }
-}
-
-// 注册点击事件
-wx.onTouchStart(function(event) {
-  const touch = event.touches[0];
-  handleClick({ clientX: touch.clientX, clientY: touch.clientY });
 });
 
-// 启动游戏
+// =================== 主循环 ===================
+function render() {
+  const now = Date.now();
+  dt = now - lastRenderTime;
+  lastRenderTime = now;
+  animationFrame++;
+
+  ctx.save();
+  // 屏幕震动应用
+  if (screenShake > 0) {
+    const dx = (Math.random() - 0.5) * screenShake;
+    const dy = (Math.random() - 0.5) * screenShake;
+    ctx.translate(dx, dy);
+    screenShake *= 0.85; // 震动衰减
+    if (screenShake < 0.5) screenShake = 0;
+  }
+
+  drawBackground();
+  drawUI();
+
+  // 绘制未收集的卡牌
+  gameState.cards.forEach(card => {
+    if (!card.collected) drawCard(card, false);
+  });
+
+  drawSlots();
+  drawFlyCards();
+  drawParticles();
+  drawFloatingTexts();
+  
+  ctx.restore();
+  requestAnimationFrame(render);
+}
+
+// 启动
 initGame(1);
 render();
-
-console.log('🍔 吃货大作战 v3.0 - 动效增强版 已启动！');
-console.log('📱 屏幕尺寸:', windowWidth, 'x', windowHeight);
-// 使用道具
-function useItem(type) {
-  if (items[type].count <= 0) return;
-  items[type].count--;
-
-  if (type === 'undo') {
-    // 撤销上一步操作 (移出最后一个进入槽位的卡片放回原处)
-    if (gameState.slots.length > 0) {
-      const lastSlotCard = gameState.slots.pop();
-      // 这里可以做个飞出动画，简单起见直接把它状态重置
-      const originalCard = gameState.cards.find(c => c.type === lastSlotCard.type && c.collected === true && c.isAnimating === false && lastSlotCard.food === c.food);
-      if(originalCard) {
-          originalCard.collected = false;
-      } else {
-        // 如果找不到对应的原卡，说明可能是在消除边缘或者被其他逻辑改了，安全起见把最后一张对应的收集属性设为false
-         for(let c of gameState.cards) {
-             if(c.type === lastSlotCard.type && c.collected === true) {
-                 c.collected = false;
-                 break;
-             }
-         }
-      }
-      playSound('shuffle');
-      createFloatingText(windowWidth / 2, windowHeight / 2, '↩️ 撤销！', '#FFD700', 36);
-    } else {
-       wx.showToast({ title: '没有可以撤销的卡片', icon: 'none' });
-       items[type].count++;
-    }
-  } else if (type === 'shuffle') {
-    // 洗牌道具，等同于摇一摇
-    shakeToShuffle();
-  } else if (type === 'hint') {
-    // 提示 (高亮可以消除或成对的卡片，这里简单高亮同类型的卡片)
-    const availableTypes = {};
-    const uncollected = gameState.cards.filter(c => !c.collected && !c.isAnimating);
-    
-    // 如果槽位里有，优先提示槽位里的类型
-    if(gameState.slots.length > 0) {
-        const slotType = gameState.slots[0].type;
-        const matchingCards = uncollected.filter(c => c.type === slotType);
-        if(matchingCards.length > 0) {
-            matchingCards.forEach(c => {
-                 c.opacity = 0.5; // 先变半透明作为简单的高亮动画
-                 setTimeout(() => { c.opacity = 1; }, 1000);
-            });
-            createFloatingText(windowWidth / 2, windowHeight / 2, '💡 提示！', '#FFD700', 36);
-            return;
-        }
-    }
-    
-    // 随机提示三个相同的
-    uncollected.forEach(c => {
-        if(!availableTypes[c.type]) availableTypes[c.type] = [];
-        availableTypes[c.type].push(c);
-    });
-    
-    for(let t in availableTypes) {
-        if(availableTypes[t].length >= 3) {
-            availableTypes[t].slice(0, 3).forEach(c => {
-                 c.opacity = 0.5;
-                 setTimeout(() => { c.opacity = 1; }, 1000);
-            });
-            createFloatingText(windowWidth / 2, windowHeight / 2, '💡 提示！', '#FFD700', 36);
-            return;
-        }
-    }
-    
-    wx.showToast({ title: '目前没有好提示哦', icon: 'none' });
-    items[type].count++;
-  }
-}
-
-function toggleChallengeMode() {
-  isChallengeMode = !isChallengeMode;
-  if (isChallengeMode) {
-    wx.showToast({ title: '挑战模式开启！', icon: 'none' });
-    startChallenge();
-  } else {
-    wx.showToast({ title: '已退出挑战模式', icon: 'none' });
-    endChallenge();
-  }
-}
-
-function startChallenge() {
-  challengeTimeLeft = 60;
-  initGame(1);
-  if (challengeTimer) clearInterval(challengeTimer);
-  challengeTimer = setInterval(() => {
-    if (gameState.gameStatus !== 'playing') {
-      clearInterval(challengeTimer);
-      return;
-    }
-    challengeTimeLeft -= 0.1;
-    if (challengeTimeLeft <= 0) {
-      challengeTimeLeft = 0;
-      clearInterval(challengeTimer);
-      gameState.gameStatus = 'lose';
-      playSound('lose');
-    }
-  }, 100);
-}
-
-function endChallenge() {
-  if (challengeTimer) clearInterval(challengeTimer);
-  isChallengeMode = false;
-  initGame(gameState.level);
-}
+console.log('🍲 沸腾火锅局 (The Soul Update) 已启动！');
