@@ -116,8 +116,9 @@ const ctx = canvas.getContext('2d');
 // 游戏常量
 const SLOT_COUNT = 7;
 const MATCH_COUNT = 3;
-const CARD_SIZE = Math.min(windowWidth / 5, 70);
-const CARD_GAP = 10;
+const CARD_GAP = 6;
+const CARD_SIZE = Math.floor((windowWidth - 40 - CARD_GAP * (SLOT_COUNT - 1)) / SLOT_COUNT);
+
 
 // 🎨 配色方案
 const THEMES = {
@@ -298,7 +299,7 @@ function initGame(level) {
   const cols = 5;
 
   const startX = (windowWidth - (cols * (CARD_SIZE + CARD_GAP) - CARD_GAP)) / 2;
-  const startY = 120;
+  const startY = (windowHeight - CARD_SIZE * layers - 250) / 2 + 50; // 居中显示
 
   cardPool.forEach(function(card, index) {
     const layer = Math.floor(index / cardsPerLayer);
@@ -504,7 +505,7 @@ function drawFlyCards() {
 
 // 绘制槽位区域
 function drawSlots() {
-  const slotAreaY = windowHeight - CARD_SIZE - 80;
+  const slotAreaY = windowHeight - CARD_SIZE - 120;
   const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) - CARD_GAP;
   const startX = (windowWidth - slotAreaWidth) / 2;
 
@@ -1106,7 +1107,7 @@ function drawItems() {
   const gap = 20;
   const totalWidth = 3 * itemWidth + 2 * gap;
   const startX = (windowWidth - totalWidth) / 2;
-  const startY = windowHeight - 65; // 在槽位下方
+  const startY = windowHeight - 90; // 在槽位下方
 
   const itemKeys = Object.keys(items);
   
@@ -1238,7 +1239,7 @@ function checkMatch() {
       hasMatch = true;
       const indicesToRemove = typeCounts[type].slice(0, MATCH_COUNT).sort(function(a, b) { return b - a; });
 
-      const slotAreaY = windowHeight - CARD_SIZE - 80;
+      const slotAreaY = windowHeight - CARD_SIZE - 120;
       const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) - CARD_GAP;
       const startX = (windowWidth - slotAreaWidth) / 2;
 
@@ -1303,7 +1304,7 @@ function collectCard(card) {
 
   card.collected = true;
 
-  const slotAreaY = windowHeight - CARD_SIZE - 80;
+  const slotAreaY = windowHeight - CARD_SIZE - 120;
   const slotAreaWidth = SLOT_COUNT * (CARD_SIZE + CARD_GAP) - CARD_GAP;
   const startX = (windowWidth - slotAreaWidth) / 2;
   const targetSlotIndex = gameState.slots.length;
@@ -1353,7 +1354,7 @@ function collectCard(card) {
       gameState.score += bonus;
       CollectionSystem.updateStats({ combo: gameState.combo });
 
-      const slotAreaY = windowHeight - CARD_SIZE - 80;
+      const slotAreaY = windowHeight - CARD_SIZE - 120;
       createFloatingText(
         windowWidth / 2,
         slotAreaY - 30,
@@ -1454,7 +1455,7 @@ function handleClick(event) {
   const gap = 20;
   const totalWidth = 3 * itemWidth + 2 * gap;
   const startX = (windowWidth - totalWidth) / 2;
-  const startY = windowHeight - 65;
+  const startY = windowHeight - 90;
   
   const itemKeys = Object.keys(items);
   for (let idx = 0; idx < itemKeys.length; idx++) {
