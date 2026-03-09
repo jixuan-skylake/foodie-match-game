@@ -606,7 +606,27 @@ function drawUI() {
 
   ctx.font = 'bold 14px Arial';
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('第' + gameState.level + '关 · ' + levelConfig.name, windowWidth / 2, 50);
+  
+  if (isChallengeMode) {
+    ctx.fillText('⚡ 限时挑战模式', windowWidth / 2, 50);
+    // 绘制倒计时进度条
+    const barWidth = 100;
+    const barX = windowWidth / 2 - barWidth / 2;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    roundRect(ctx, barX, 60, barWidth, 10, 5);
+    ctx.fill();
+    
+    ctx.fillStyle = challengeTimeLeft > 10 ? '#4CAF50' : '#FF4444';
+    const fillWidth = Math.max(0, (challengeTimeLeft / 60) * barWidth);
+    roundRect(ctx, barX, 60, fillWidth, 10, 5);
+    ctx.fill();
+    
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(Math.ceil(challengeTimeLeft) + 's', windowWidth / 2, 85);
+  } else {
+    ctx.fillText('第' + gameState.level + '关 · ' + levelConfig.name, windowWidth / 2, 50);
+  }
 
   ctx.textAlign = 'left';
   ctx.font = 'bold 16px Arial';
@@ -1037,14 +1057,16 @@ function drawItems() {
   });
 }
 
-// 绘制主界面按钮 (例如排行榜入口)
+// 绘制主界面按钮 (排行榜入口 & 挑战模式入口)
 function drawHomeButtons() {
   if (gameState.gameStatus !== 'playing') return;
 
   const btnWidth = 50;
   const btnHeight = 50;
-  const btnX = 15;
-  const btnY = 90;
+  
+  // 排行榜按钮
+  let btnX = 15;
+  let btnY = 90;
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
   roundRect(ctx, btnX, btnY, btnWidth, btnHeight, 25);
@@ -1057,6 +1079,19 @@ function drawHomeButtons() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('🏆', btnX + btnWidth / 2, btnY + btnHeight / 2);
+  ctx.shadowColor = 'transparent';
+
+  // 挑战模式按钮
+  btnY += btnHeight + 15;
+  ctx.fillStyle = isChallengeMode ? 'rgba(255, 215, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)';
+  roundRect(ctx, btnX, btnY, btnWidth, btnHeight, 25);
+  ctx.fill();
+
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+  ctx.shadowBlur = 5;
+  ctx.shadowOffsetY = 2;
+  ctx.font = '24px Arial';
+  ctx.fillText('⚡', btnX + btnWidth / 2, btnY + btnHeight / 2);
   ctx.shadowColor = 'transparent';
 }
 
@@ -1277,18 +1312,30 @@ function handleClick(event) {
     return;
   }
 
-  // 检测排行榜按钮点击
+  // 检测主界面侧边按钮点击
   const btnWidth = 50;
   const btnHeight = 50;
   const btnX = 15;
-  const btnY = 90;
+  
+  // 排行榜按钮
   if (
     clientX >= btnX &&
     clientX <= btnX + btnWidth &&
-    clientY >= btnY &&
-    clientY <= btnY + btnHeight
+    clientY >= 90 &&
+    clientY <= 90 + btnHeight
   ) {
     showLeaderboard = true;
+    return;
+  }
+
+  // 挑战模式按钮
+  if (
+    clientX >= btnX &&
+    clientX <= btnX + btnWidth &&
+    clientY >= 90 + btnHeight + 15 &&
+    clientY <= 90 + btnHeight * 2 + 15
+  ) {
+    toggleChallengeMode();
     return;
   }
 
@@ -1439,4 +1486,40 @@ function useItem(type) {
     wx.showToast({ title: '目前没有好提示哦', icon: 'none' });
     items[type].count++;
   }
+}
+
+function toggleChallengeMode() {
+  isChallengeMode = !isChallengeMode;
+  if (isChallengeMode) {
+    wx.showToast({ title: '挑战模式开启！', icon: 'none' });
+    startChallenge();
+  } else {
+    wx.showToast({ title: '已退出挑战模式', icon: 'none' });
+    endChallenge();
+  }
+}
+
+function startChallenge() {
+  challengeTimeLeft = 60;
+  initGame(1);
+  if (challengeTimer) clearInterval(challengeTimer);
+  challengeTimer = setInterval(() => {
+    if (gameState.gameStatus !== 'playing') {
+      clearInterval(challengeTimer);
+      return;
+    }
+    challengeTimeLeft -= 0.1;
+    if (challengeTimeLeft <= 0) {
+      challengeTimeLeft = 0;
+      clearInterval(challengeTimer);
+      gameState.gameStatus = 'lose';
+      playSound('lose');
+    }
+  }, 100);
+}
+
+function endChallenge() {
+  if (challengeTimer) clearInterval(challengeTimer);
+  isChallengeMode = false;
+  initGame(gameState.level);
 }
